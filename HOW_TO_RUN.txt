@@ -1,0 +1,59 @@
+SCHOOLOGY BULK DOWNLOADER - HOW TO RUN
+======================================
+
+FIRST TIME SETUP
+----------------
+1. Make sure Python 3 is installed (it is on all Macs by default)
+
+2. Create the virtual environment (only do this once):
+   python3 -m venv /Users/owenleung/python-env/beautifulsoup4
+
+3. Activate it:
+   source /Users/owenleung/python-env/beautifulsoup4/bin/activate
+
+4. Install dependencies (only do this once):
+   pip install requests beautifulsoup4
+
+
+EVERY TIME YOU RUN
+------------------
+1. Activate the venv:
+   source /Users/owenleung/python-env/beautifulsoup4/bin/activate
+
+2. cd into the script folder:
+   cd /Users/owenleung/Downloads/schoology_downloader
+
+3. Get your session cookie:
+   - Open Schoology in Chrome and log in
+   - Press Cmd+Option+I to open DevTools
+   - Go to Application tab → Cookies → https://fuhsd.schoology.com
+   - Find the cookie that starts with "SESS..." (e.g. SESS3acdf46cd5ac700bf8c41bf16bd2407e)
+   - Copy its Value
+
+4. Get your Course ID:
+   - Navigate to the course in Schoology
+   - Look at the URL: fuhsd.schoology.com/course/XXXXXXXXX/materials
+   - The number is your Course ID
+
+5. Open schoology_downloader.py and fill in the CONFIG section:
+   COURSE_ID = "XXXXXXXXX"         ← paste your course ID
+   COOKIES = {
+       "SESS3ac...": "YOUR_VALUE"  ← paste full cookie name and value
+   }
+
+6. Run the script:
+   python3 schoology_downloader.py
+
+7. Files will be saved to:
+   ./schoology_files/<Course Name>/
+
+
+NOTES
+-----
+- The script skips already-downloaded files so it's safe to re-run
+- If it stops mid-way (e.g. cookie expired), just grab a fresh cookie and re-run
+- Cookie name (SESS3acdf46cd5ac700bf8c41bf16bd2407e) stays the same, only the VALUE changes each session
+- To deactivate the venv when done: type "deactivate"
+- To download a different course, just change COURSE_ID and the cookie value in the script
+- Files with no downloadable attachments are saved as .html pages instead
+- External links are saved as .url shortcut files (double-click to open in browser)

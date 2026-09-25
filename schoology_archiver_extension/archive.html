@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Schoology Archiver</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="archive.css">
+</head>
+<body>
+  <div id="killbar" hidden>
+    <span id="killText">Archiving…</span>
+    <button id="kill" class="kill" title="Stops immediately. Esc or Alt+Shift+K also work, or close this panel.">■ Stop now</button>
+  </div>
+  <main>
+    <header>
+      <h1>Schoology Archiver</h1>
+    </header>
+
+    <section class="card" id="setup">
+      <div class="row">
+        <div class="label">Course</div>
+        <div id="courseName" class="value muted">Open a course in Schoology…</div>
+      </div>
+
+      <div class="row">
+        <div class="label">Save to</div>
+        <div class="value">
+          <span id="folderName" class="muted">No folder chosen</span>
+          <button id="pickFolder" class="small">Choose folder…</button>
+        </div>
+      </div>
+      <p class="hint" id="folderHint">Pick (or create) <strong>Downloads → Schoology Archive</strong>. Files are written straight into it, with no Save dialogs. If Chrome asks, choose <em>Allow on every visit</em>.</p>
+
+      <details>
+        <summary>Options</summary>
+        <fieldset>
+          <label><input type="checkbox" id="opt-google" checked> Google Docs / Slides / Sheets linked in the course</label>
+          <label><input type="checkbox" id="opt-submissions" checked> My submissions, grades and teacher comments</label>
+          <label><input type="checkbox" id="opt-quizzes" checked> Quiz reviews (view only; never starts an attempt)</label>
+          <label><input type="checkbox" id="opt-grades" checked> Gradebook (<code>grades.md</code>)</label>
+          <label><input type="checkbox" id="opt-updates" checked> Announcements (<code>updates.md</code>)</label>
+          <label class="danger"><input type="checkbox" id="opt-redownloadAll"> Re-download everything</label>
+        </fieldset>
+        <div class="fields">
+          <label>Schoology site <input id="host" autocomplete="off"></label>
+          <label>Course ID <input id="course" inputmode="numeric" autocomplete="off"></label>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button id="start" class="primary" disabled>Archive this course</button>
+      </div>
+      <p class="hint">Stop any time: <strong>Stop now</strong>, <kbd>Esc</kbd>, <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>, or close this panel. Anything already saved is kept.</p>
+    </section>
+
+    <section class="card" id="statusCard" hidden>
+      <div class="status">
+        <strong id="statusText">Starting…</strong>
+        <span id="counts"></span>
+      </div>
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+
+    <section class="card" id="historyCard" hidden>
+      <h2>Archived courses</h2>
+      <ul id="history"></ul>
+    </section>
+  </main>
+  <script type="module" src="archive.js"></script>
+</body>
+</html>
