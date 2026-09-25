@@ -109,7 +109,13 @@ async function saveToken() {
   const token = $('npTokenInput').value.trim();
   if (!token) { $('npTokenInput').focus(); return; }
   const r = await np('setToken', { token });
-  if (!r.ok) { hint('Token starts with np_', true); $('npTokenInput').focus(); return; }
+  if (!r.ok) {
+    // Only a bad format is the token's fault. No reply at all means the service
+    // worker is still the old one: Chrome swaps it only on a reload.
+    hint(r.data?.error === 'token_format' ? 'Token starts with np_' : 'Reload extension', true);
+    $('npTokenInput').focus();
+    return;
+  }
   $('npTokenInput').value = '';
   await drawSettings(r.data);
   $('npTokenRemove').focus();
