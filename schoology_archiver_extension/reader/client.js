@@ -121,5 +121,9 @@ export class SchoologyClient {
 export function isQuizTakingUrl(url) {
   const p = new URL(url).pathname;
   return /\/assessment\/?$/.test(p) || /\/assessment\/(start|take|resume|attempt|submit)/.test(p)
-    || /\/(start|take|resume)[_-]?(attempt|assessment|quiz)/i.test(p);
+    || /\/(start|take|resume)[_-]?(attempt|assessment|quiz)/i.test(p)
+    // /assessment/5/start, /course/1/assessments/2/take, …/assessments/2/resume/
+    || /\/assessments?\/(\d+\/)*(start|take|resume|submit|begin)(\/|$)/i.test(p)
+    // the dropbox submit form: opening it submits nothing, but nothing here needs it
+    || /\/dropbox\/submit(\/|$)/i.test(p);
 }
