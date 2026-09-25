@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Schoology Course Archiver",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Archive a Schoology course (files, Google Docs, assignments, your submissions, grades) into your Downloads folder, with an INDEX.md for AI study tools.",
   "action": {
     "default_title": "Open Schoology Archiver",
@@ -17,7 +17,8 @@
     "128": "icons/icon128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "permissions": [
     "downloads",
@@ -30,7 +31,9 @@
     "https://*.schoology.com/*",
     "https://docs.google.com/*",
     "https://drive.google.com/*",
-    "https://*.googleusercontent.com/*"
+    "https://*.googleusercontent.com/*",
+    "https://neo-plan.vercel.app/*",
+    "http://localhost:3000/*"
   ],
   "commands": {
     "kill-archiver": {

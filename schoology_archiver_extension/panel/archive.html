@@ -5,12 +5,57 @@
   <title>Schoology Archiver</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="archive.css">
+  <link rel="stylesheet" href="neoplan.css">
 </head>
 <body>
   <div id="killbar" hidden>
     <span id="killText">Archiving…</span>
     <button id="kill" class="kill" title="Stops immediately. Esc or Alt+Shift+K also work, or close this panel.">■ Stop now</button>
   </div>
+
+  <!-- neo-plan: the date, Settings, and the view switcher (never a tab bar). -->
+  <div id="npTop">
+    <h1 id="npDate"></h1>
+    <div class="actions">
+      <button id="npSettingsBtn" class="link" aria-expanded="false" aria-controls="npSettings">Settings</button>
+      <div class="switch">
+        <button id="npViewBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="npViewMenu"><span id="npViewName">Today</span> <span aria-hidden="true">▾</span></button>
+        <div id="npViewMenu" role="menu" hidden>
+          <button role="menuitemradio" data-view="today" aria-checked="false">Today</button>
+          <button role="menuitemradio" data-view="archive" aria-checked="false">Archive</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section id="npSettings" class="np" hidden aria-labelledby="npSettingsTitle">
+    <h2 id="npSettingsTitle">Settings</h2>
+    <div class="row">
+      <label for="npServer">Server</label>
+      <div class="field"><select id="npServer"></select></div>
+    </div>
+    <div class="row">
+      <label for="npTokenInput" id="npTokenLabel">Token</label>
+      <div class="field" id="npTokenSet" hidden>
+        <span id="npTokenMasked" class="mono"></span>
+        <button id="npTokenRemove" class="btn">Remove</button>
+      </div>
+      <div class="field" id="npTokenNew" hidden>
+        <input id="npTokenInput" type="password" autocomplete="off" spellcheck="false" placeholder="np_…">
+        <button id="npTokenSave" class="btn">Save</button>
+      </div>
+      <p class="hint" id="npTokenHint">Make one in neo-plan Settings.</p>
+    </div>
+    <div class="foot"><button id="npSettingsDone" class="link">Done</button></div>
+  </section>
+
+  <div id="viewToday" class="np">
+    <p class="err" id="npErr" role="status" hidden><span id="npErrText"></span><button id="npRetry" class="link">Retry</button></p>
+    <p class="setup" id="npSetup" hidden><span id="npSetupText" class="dim">Token needed</span><button id="npSetupOpen" class="link">Settings</button></p>
+    <div id="npList"></div>
+  </div>
+
+  <div id="viewArchive">
   <main>
     <header>
       <h1>Schoology Archiver</h1>
@@ -66,6 +111,8 @@
       <ul id="history"></ul>
     </section>
   </main>
+  </div>
   <script type="module" src="archive.js"></script>
+  <script type="module" src="shell.js"></script>
 </body>
 </html>

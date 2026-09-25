@@ -42,6 +42,16 @@ Files are written straight into that folder: no Save dialogs and no downloads bu
 
 `INDEX.md` at the top of the course folder lists everything, what changed in the last sync, and anything that failed.
 
+## neo-plan Today view
+
+The side panel has two views, switched from the menu at the top right: **Today** (your neo-plan items) and **Archive** (everything above). It remembers the last one.
+
+1. In neo-plan, open Settings and make a new extension token (it starts with `np_`).
+2. In the side panel click **Settings**, paste it into **Token**, **Save**, then **Done**. **Server** is `neo-plan.vercel.app` (or `localhost:3000` while developing neo-plan).
+3. **Today** lists Overdue, Today and Upcoming. The circle on the left marks work done (the square on a test marks it studied). **Turn in** clears an assignment; its place shows **Undo** for a few seconds. Clicking a title opens it in the current tab.
+
+It refreshes when the panel opens, when you come back to it, and every minute while it's showing. The token is kept in the extension and only the background worker sends it to neo-plan.
+
 ## Stopping (kill switch)
 
 Any of these stops a run **immediately**: page loads are aborted, file writes in progress are discarded (no half-written files) and quiz-review tabs are closed.
@@ -77,7 +87,8 @@ Point Cowork at your archive folder's `<Course>/` subfolder and start with somet
 - `manifest.json`, `background.js` (run lock, kill switch), `util.js` (shared helpers)
 - `reader/`: everything that reads Schoology. `client.js` fetches pages (and refuses quiz-taking URLs); `parse/` turns pages into data (`materials`, `assignment`, `quiz`, `grades`, `feed`); `md.js` converts HTML to Markdown.
 - `outputs/archive/`: the archive run (`archiver.js`), file writing and change tracking (`saver.js`), the chosen folder (`folder.js`), Google exports (`google.js`).
-- `panel/`: the side panel (`archive.html`, `archive.js`, `archive.css`).
+- `outputs/neoplan/api.js`: every call to neo-plan (token, server, fetch). Only the background worker imports it; the panel asks it by message.
+- `panel/`: the side panel. `archive.html` is the page; `archive.js`/`archive.css` are the Archive view; `shell.js` is the view switcher and Settings; `today.js` (+ `today-format.js`, `np.js`) is the Today view; `neoplan.css` and `fonts/` are neo-plan's look (Public Sans and IBM Plex Mono, bundled).
 
 ## Known limits
 

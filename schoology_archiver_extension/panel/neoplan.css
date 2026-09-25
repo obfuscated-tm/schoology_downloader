@@ -1,0 +1,280 @@
+/* neo-plan's look, for the side panel's top bar, Today view and Settings.
+   Every value comes from neo-plan's DESIGN.md / src/app/globals.css, prefixed
+   --np- so nothing collides with archive.css. Light only (DESIGN.md §2): no
+   prefers-color-scheme block here, on purpose. One radius, 1px borders, no
+   shadows. Loaded after archive.css; every rule is scoped to .np / #npTop so
+   the Archive view is untouched. */
+
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 400 600; /* variable: the latin subset next/font ships, 400 and 600 from one file */
+  font-display: swap;
+  src: url("fonts/public-sans-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-latin-400.woff2") format("woff2");
+}
+
+:root {
+  --np-bg: #f6f5f1;
+  --np-surface: #ffffff;
+  --np-ink: #1b1c1e;
+  --np-ink-dim: #5c5f66;
+  --np-line: #e2e0da;
+  --np-ready: #ffd400;
+  --np-time: #d9480f;
+
+  --np-class-1: #2f6f4e;
+  --np-class-2: #1f5d8c;
+  --np-class-3: #6b4a2f;
+  --np-class-4: #6b3fa0;
+  --np-class-5: #a02c4a;
+  --np-class-6: #3c6e71;
+  --np-class-7: #7a6a1f;
+  --np-class-8: #4a4e69;
+  --np-class-none: #a8a49b;
+
+  --np-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  --np-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --np-radius: 6px;
+  --np-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The page ground follows the view: neo-plan's paper for Today and Settings,
+   the archiver's own (with its dark mode) for Archive. */
+body[data-view="today"],
+body[data-settings] {
+  background: var(--np-bg);
+  color: var(--np-ink);
+}
+
+/* Until shell.js has picked a view, draw neither: no flash of the wrong one. */
+body:not([data-view]) #viewArchive,
+body:not([data-view]) #viewToday,
+body[data-view="today"] #viewArchive,
+body[data-view="archive"] #viewToday,
+body[data-settings] #viewArchive,
+body[data-settings] #viewToday { display: none; }
+
+/* ── Shared reset for everything neo-plan-styled ─────────────────────────── */
+.np,
+#npTop {
+  font-family: var(--np-sans);
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--np-ink);
+}
+.np *,
+#npTop * { box-sizing: border-box; }
+.np button,
+#npTop button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.np button:disabled,
+#npTop button:disabled { opacity: 1; cursor: default; color: var(--np-ink-dim); }
+.np :focus-visible,
+#npTop :focus-visible {
+  outline: 2px solid var(--np-ink);
+  outline-offset: 2px;
+}
+.np .mono { font-family: var(--np-mono); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
+.np .dim { color: var(--np-ink-dim); }
+.np .link {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--np-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── Top bar: the date on the left, Settings and the view switcher right ── */
+#npTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--np-bg);
+  border-bottom: 1px solid var(--np-line);
+}
+#npTop h1 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--np-ink);
+}
+#npTop .actions { display: flex; align-items: center; gap: 16px; margin: 0 0 0 auto; } /* margin: archive.css styles .actions */
+#npTop .switch { position: relative; }
+#npViewBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--np-line);
+  border-radius: var(--np-radius);
+  background: var(--np-surface);
+}
+#npViewMenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  background: var(--np-surface);
+  border: 1px solid var(--np-line);
+  border-radius: var(--np-radius);
+}
+#npViewMenu[hidden] { display: none; }
+#npViewMenu button { padding: 8px 16px 8px 12px; text-align: left; white-space: nowrap; }
+#npViewMenu button[aria-checked="true"] { font-weight: 600; }
+
+/* ── Today ─────────────────────────────────────────────────────────────── */
+#viewToday { padding: 0 16px 48px; }
+.np .err {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--np-time); /* §2: a refused write reads as --time */
+}
+.np .err[hidden] { display: none; }
+.np .empty { margin: 16px 0 0; font-size: 13px; line-height: 18px; color: var(--np-ink-dim); }
+.np .setup { margin: 16px 0 0; display: flex; align-items: baseline; gap: 12px; font-size: 13px; line-height: 18px; }
+.np .setup[hidden] { display: none; }
+
+.np h2 {
+  margin: 24px 0 8px;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.np h2.overdue { color: var(--np-time); }
+.np .dayhead { margin: 16px 0 8px; color: var(--np-ink-dim); }
+.np h2 + .dayhead { margin-top: 0; }
+
+.np ul.cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.np .card {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0; /* archive.css gives .card a margin */
+  padding: 12px;
+  background: var(--np-surface);
+  border: 1px solid var(--np-line);
+  border-radius: var(--np-radius);
+}
+/* Exam: 2px --ink left edge and a 600 title, the only card with either. It
+   never mutes, even when studied (§5b, §9). */
+.np .card.exam { border-left: 2px solid var(--np-ink); }
+.np .card.exam .title { font-weight: 600; }
+
+.np .glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+.np .glyph span {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--np-ink);
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+}
+.np .card.exam .glyph span { border-radius: 0; }
+/* A studied exam keeps its ink glyph: exams never mute. */
+.np .card.ready:not(.exam) .glyph span { border-color: var(--np-ink-dim); color: var(--np-ink-dim); }
+
+.np .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.np .title { overflow-wrap: anywhere; color: var(--np-ink); text-decoration: none; }
+.np a.title:hover { text-decoration: underline; text-underline-offset: 2px; }
+.np .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--np-ink-dim); }
+.np .cls { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; line-height: 18px; }
+.np .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+/* Ready: the card recedes (text to --ink-dim), the obligation does not. */
+.np .card.ready:not(.exam) .title { color: var(--np-ink-dim); }
+
+.np .turnin {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+}
+/* The turn-in box: 16px, filled --ready, 1px --ink-dim edge, never ticked (§2). */
+.np .box { display: block; width: 16px; height: 16px; background: var(--np-ready); border: 1px solid var(--np-ink-dim); }
+.np .studied { flex: none; font-size: 13px; line-height: 18px; color: var(--np-ink-dim); }
+
+/* Where a cleared card was: its outline, no fill (§5b). */
+.np .card.cleared { background: none; align-items: center; }
+.np .card.cleared .gone { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; color: var(--np-ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Settings ─────────────────────────────────────────────────────────── */
+#npSettings { padding: 0 16px 48px; max-width: 68ch; }
+#npSettings[hidden] { display: none; }
+#npSettings .row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 0; /* archive.css gives .row a margin */
+  padding: 12px 0;
+  border-bottom: 1px solid var(--np-line);
+}
+#npSettings .row:last-of-type { border-bottom: 0; }
+#npSettings label { font-weight: 600; }
+#npSettings .field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+#npSettings select,
+#npSettings input {
+  font: inherit;
+  min-width: 0;
+  flex: 1;
+  padding: 4px 8px;
+  color: var(--np-ink);
+  background: var(--np-surface);
+  border: 1px solid var(--np-line);
+  border-radius: var(--np-radius);
+}
+#npSettings .btn {
+  padding: 4px 12px;
+  border: 1px solid var(--np-line);
+  border-radius: var(--np-radius);
+  background: var(--np-surface);
+}
+#npSettings .hint { grid-column: 2; margin: 0; font-size: 13px; line-height: 18px; color: var(--np-ink-dim); }
+#npSettings .hint.bad { color: var(--np-time); }
+#npSettings .foot { margin-top: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .np *, #npTop * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+/* The hidden attribute must win over the display rules above. */
+#npTop[hidden],
+#npSettings [hidden],
+.np [hidden] { display: none !important; }

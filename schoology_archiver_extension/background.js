@@ -1,3 +1,5 @@
+import { handleNeoplan } from './outputs/neoplan/api.js';
+
 // The archiver lives in Chrome's side panel so Schoology stays visible next to it.
 // (A regular popup would close, and stop the archive, as soon as you click the page.)
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
@@ -27,7 +29,13 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 // Only one archive at a time, across all windows.
-chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (msg?.type === 'neoplan') {
+    // Only this extension's own pages may drive neo-plan with the stored token.
+    if (sender.id !== chrome.runtime.id) return false;
+    handleNeoplan(msg).then(reply);
+    return true; // async reply
+  }
   if (msg?.type === 'claim') {
     chrome.storage.session.get('running').then(async ({ running }) => {
       if (running?.id && running.id !== msg.id && panels.has(running.id)) {
