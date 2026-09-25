@@ -1,4 +1,4 @@
-import { sha256, parseContentDisposition } from './util.js';
+import { sha256, parseContentDisposition } from '../../util.js';
 
 // Decide what a link is and how (if at all) it can be saved.
 // fingerprintUrl: a cheap, deterministic export used to detect edits

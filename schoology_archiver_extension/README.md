@@ -72,6 +72,13 @@ Point Cowork at your archive folder's `<Course>/` subfolder and start with somet
 
 > Read INDEX.md first. Then quiz me on Unit 2 using the lecture slides and guided notes. Don't show me answer keys until I've answered.
 
+## Code layout
+
+- `manifest.json`, `background.js` (run lock, kill switch), `util.js` (shared helpers)
+- `reader/`: everything that reads Schoology. `client.js` fetches pages (and refuses quiz-taking URLs); `parse/` turns pages into data (`materials`, `assignment`, `quiz`, `grades`, `feed`); `md.js` converts HTML to Markdown.
+- `outputs/archive/`: the archive run (`archiver.js`), file writing and change tracking (`saver.js`), the chosen folder (`folder.js`), Google exports (`google.js`).
+- `panel/`: the side panel (`archive.html`, `archive.js`, `archive.css`).
+
 ## Known limits
 
 - **Quizzes:** questions and answers are saved only where the teacher allows reviewing them. Otherwise the file has the description, grade and attempts. Unfinished or never-taken quizzes are left alone.

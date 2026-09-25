@@ -1,4 +1,4 @@
-import { splitExt, today, StoppedError, throwIfStopped } from './util.js';
+import { splitExt, today, StoppedError, throwIfStopped } from '../../util.js';
 
 export const ARCHIVE_ROOT = 'Schoology Archive';
 

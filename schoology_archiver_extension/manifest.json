@@ -42,6 +42,6 @@
     }
   },
   "side_panel": {
-    "default_path": "archive.html"
+    "default_path": "panel/archive.html"
   }
 }

@@ -1,6 +1,6 @@
-import { Archiver } from './archiver.js';
-import { LoginError } from './schoology.js';
-import { getSavedFolder, pickFolder, ensureWritable } from './folder.js';
+import { Archiver } from '../outputs/archive/archiver.js';
+import { LoginError } from '../reader/client.js';
+import { getSavedFolder, pickFolder, ensureWritable } from '../outputs/archive/folder.js';
 
 const $ = (id) => document.getElementById(id);
 const OPTS = ['google', 'submissions', 'quizzes', 'grades', 'updates', 'redownloadAll'];
@@ -73,7 +73,7 @@ async function choose() {
     $('folderHint').innerHTML = 'Chrome didn’t allow the folder picker here. <a href="#" id="openSetup">Choose the folder in a tab</a>, then come back.';
     $('openSetup').onclick = (ev) => {
       ev.preventDefault();
-      chrome.tabs.create({ url: chrome.runtime.getURL('archive.html?setup=1') });
+      chrome.tabs.create({ url: chrome.runtime.getURL('panel/archive.html?setup=1') });
     };
     return false;
   }

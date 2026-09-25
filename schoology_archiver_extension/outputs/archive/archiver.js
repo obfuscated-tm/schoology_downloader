@@ -1,10 +1,11 @@
-import { sanitizeName, withExt, extOf, sha256, mdPath, sleep, StoppedError, throwIfStopped } from './util.js';
-import { htmlToMd, resolveUrl } from './md.js';
-import {
-  SchoologyClient, courseNameFrom, parseFolderRows, contentRoot, findSourceAttachments,
-  findLinkViewTarget, parseAssignment, parseDropbox, findSubmissionSources, submissionId, parseGrades, parseFeedPage,
-  parseCommonAssessment, parseLegacyQuizAttempts, parseLegacyQuizReview, isQuizTakingUrl,
-} from './schoology.js';
+import { sanitizeName, withExt, extOf, sha256, mdPath, sleep, StoppedError, throwIfStopped } from '../../util.js';
+import { htmlToMd, resolveUrl } from '../../reader/md.js';
+import { SchoologyClient, isQuizTakingUrl } from '../../reader/client.js';
+import { courseNameFrom, parseFolderRows, contentRoot, findSourceAttachments, findLinkViewTarget } from '../../reader/parse/materials.js';
+import { parseAssignment, parseDropbox, findSubmissionSources, submissionId } from '../../reader/parse/assignment.js';
+import { parseCommonAssessment, parseLegacyQuizAttempts, parseLegacyQuizReview } from '../../reader/parse/quiz.js';
+import { parseGrades } from '../../reader/parse/grades.js';
+import { parseFeedPage } from '../../reader/parse/feed.js';
 import { Saver, FolderWriter, DownloadsWriter, ARCHIVE_ROOT } from './saver.js';
 import { classifyLink, prepareGoogle } from './google.js';
 
