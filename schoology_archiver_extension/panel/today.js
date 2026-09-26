@@ -8,7 +8,7 @@
 // service worker.
 
 import { np as defaultNp } from './np.js';
-import { itemDay, longDay, metaText, dayOf } from './today-format.js';
+import { itemDay, longDay, metaText, dayOf, clearedWord } from './today-format.js';
 
 export const SECTIONS = [
   { key: 'overdue', label: 'Overdue' },
@@ -276,7 +276,7 @@ export function createToday({ onSetup, onDate, np = defaultNp, openUrl, doc = do
 
   function ghostRow(g) {
     const li = el('li', 'card cleared');
-    li.append(el('span', 'mono dim', 'Cleared'), el('span', 'gone', g.item.title || ''));
+    li.append(el('span', 'mono dim', clearedWord(g.item)), el('span', 'gone', g.item.title || ''));
     const b = el('button', 'link', 'Undo');
     b.dataset.focus = `undo:${g.item.id}`;
     b.disabled = g.busy;

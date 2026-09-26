@@ -58,8 +58,12 @@ With a token saved, the extension also reads Schoology for neo-plan in the backg
 
 - **Settings → Schoology**: when it last read Schoology, **Check now**, and one line if something went wrong (not signed in, token refused, archive running).
 - **Settings → Courses**: every Schoology section and the neo-plan column it files into. Ones neo-plan matched by name are marked `auto`; pick another (or None) to override.
-- **On an assignment page**: a small neo-plan chip under the title with the class, your due date, and **Turn in** (with Undo), **Submitted**, **Cleared** or **Missing**. If neo-plan doesn't have it: **Add to neo-plan**. When the page shows your submission as made, neo-plan is told right away.
-- **On the Schoology home page**: a marker at the end of each upcoming/overdue row: `○` in neo-plan, `✓` done, `Submitted`/`Cleared`, or `+` to add it.
+- **On an assignment page**: a small neo-plan chip under the title with the class, your due date, and **Turn in** (with Undo), **Submitted** (Schoology cleared it), **Turned in** (you did; **Finished** for anything that isn't an assignment) or **Missing**. If neo-plan doesn't have it: **Add to neo-plan**. When the page shows your submission as made, neo-plan is told right away.
+- **On an assignment page**, the chip also has **Remove** (takes it off neo-plan). A removed one shows **Removed** and **Add back**.
+- **On the Schoology home page, and a course's Materials page (and its folders)**: a marker after each assignment: `○` in neo-plan, `✓` done, `Turned in`/`Finished`/`Submitted`, `×` to remove it from neo-plan; `+` to add one neo-plan doesn't have; **Removed · Add back** for one you removed. A removed assignment stays off neo-plan when Schoology is read again.
+- **The neo-plan button**, bottom right of every Schoology page except assignments and tests: opens neo-plan itself in a card over the page, with Schoology dimmed behind it. Close it with **×**, **Esc**, or a click outside the card; it keeps its place until you leave the page. **Open in a tab** is at the top of the card.
+
+Remove and Add back need neo-plan's side (`neo-plan/docs/EXTENSION-CONTRACT-5.md`); until it has it they say **neo-plan needs an update**. Staying signed in to neo-plan inside the card needs the same update (its sign-in cookie has to allow being inside another site's page); until then the card shows neo-plan's sign-in, and **Open in a tab** works.
 
 The overlays only read the page and draw in their own isolated elements: they never click, submit or change anything of Schoology's, and they never run on quiz or dropbox-submit pages.
 
@@ -100,8 +104,8 @@ Point Cowork at your archive folder's `<Course>/` subfolder and start with somet
 - `outputs/archive/`: the archive run (`archiver.js`), file writing and change tracking (`saver.js`), the chosen folder (`folder.js`), Google exports (`google.js`).
 - `reader/parse/sync.js`: courses, home lists, events, gradebook rows, submission status and the assignment page, for the sync and the overlays.
 - `sync/`: `sync.js` is one run (Schoology reads → one enrich → a Snapshot in storage); `runner.js` is when it may run (lock, schedule, kill switch) and submit detection. `offscreen/` parses pages for it (the background worker has no DOMParser).
-- `overlays/`: content scripts on assignment pages and `/home`. `boot.js` loads `assignment.js` or `home.js` as a module; `ui.js` is their shadow-DOM styling.
-- `outputs/neoplan/api.js`: every call to neo-plan (token, server, fetch). Only the background worker imports it; the panel and content scripts ask it by message (content scripts may only read items, add one, turn in and put back).
+- `overlays/`: content scripts on Schoology pages. `boot.js` loads `assignment.js`, `home.js` or `course.js` (Materials) as a module, and `launcher.js` (the neo-plan button) everywhere but assignments and tests; `marks.js` is the row marker `home.js` and `course.js` share; `ui.js` is their shadow-DOM styling.
+- `outputs/neoplan/api.js`: every call to neo-plan (token, server, fetch). Only the background worker imports it; the panel and content scripts ask it by message (content scripts may only read items, add, turn in, put back, remove and restore one, and open the neo-plan window).
 - `panel/sync-settings.js`: the Schoology line and Courses in Settings.
 - `panel/`: the side panel. `archive.html` is the page; `archive.js`/`archive.css` are the Archive view; `shell.js` is the view switcher and Settings; `today.js` (+ `today-format.js`, `np.js`) is the Today view; `neoplan.css` and `fonts/` are neo-plan's look (Public Sans and IBM Plex Mono, bundled).
 

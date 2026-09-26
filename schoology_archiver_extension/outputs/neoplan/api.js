@@ -53,6 +53,11 @@ export function buildRequest(server, token, msg) {
       return { url: item('turn-in'), init: { method: 'POST', headers } };
     case 'putBack':
       return { url: item('put-back'), init: { method: 'POST', headers } };
+    // ── Remove and add back (docs/EXTENSION-CONTRACT-5.md) ──
+    case 'remove':
+      return { url: item('remove'), init: { method: 'POST', headers } };
+    case 'restore':
+      return { url: item('restore'), init: { method: 'POST', headers } };
     // ── step 4 (docs/EXTENSION-CONTRACT-4.md) ──
     case 'enrich':
       return {
@@ -97,8 +102,8 @@ export function buildRequest(server, token, msg) {
 
 const ID_RE = /^\d{1,20}$/;
 // Ops that act on one neo-plan item by its id.
-const ITEM_OPS = new Set(['work', 'turnIn', 'putBack']);
-export const API_OPS = new Set(['today', 'work', 'turnIn', 'putBack', 'enrich', 'courses', 'setCourse', 'open', 'items', 'addItem']);
+const ITEM_OPS = new Set(['work', 'turnIn', 'putBack', 'remove', 'restore']);
+export const API_OPS = new Set(['today', 'work', 'turnIn', 'putBack', 'remove', 'restore', 'enrich', 'courses', 'setCourse', 'open', 'items', 'addItem']);
 
 async function call(msg) {
   const { server, token } = await getConfig();

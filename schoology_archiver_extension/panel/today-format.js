@@ -8,6 +8,15 @@ const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'O
 // neo-plan's card labels (src/lib/types.ts TYPE_LABEL). A task has none.
 export const TYPE_LABEL = { assignment: 'HW', exam: 'TEST', classwork: 'CW', task: '', meeting: 'MEET' };
 
+/**
+ * What a cleared item says it is, outside neo-plan: Submitted when Schoology
+ * cleared it, Turned in for an assignment, Finished for anything else.
+ */
+export function clearedWord(it) {
+  if (it?.cleared_by === 'schoology') return 'Submitted';
+  return it?.type === 'assignment' ? 'Turned in' : 'Finished';
+}
+
 const fmts = new Map();
 function fmt(zone) {
   if (!fmts.has(zone)) {

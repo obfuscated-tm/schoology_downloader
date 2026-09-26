@@ -95,6 +95,30 @@ export function homeRowsIn(root) {
   return out;
 }
 
+/**
+ * The assignment rows of a course's Materials page (table#folder-contents-table,
+ * as reader/parse/materials.js reads it). Each: { el, schoology_id,
+ * section_id, title, due? }. `el` is the row's title element, for the overlay
+ * to sit after. Newer quizzes (/assessments/) are not assignments and are left out.
+ */
+export function materialRowsIn(root, url = '') {
+  let section = null;
+  try { section = (new URL(url, 'https://x.schoology.com').pathname.match(COURSE_RE) || [])[1] || null; } catch { /* no section */ }
+  const out = [];
+  const seen = new Set();
+  const table = root.querySelector('table#folder-contents-table');
+  if (!table) return out;
+  for (const tr of table.querySelectorAll('tr.dr')) {
+    const a = tr.querySelector('.item-title a[href]');
+    const m = (a?.getAttribute('href') || '').match(ASSIGNMENT_RE);
+    if (!m || seen.has(m[1])) continue;
+    seen.add(m[1]);
+    const due = parseDueText(cleanText(tr.querySelector('.item-body')) || '');
+    out.push({ el: a.closest('.item-title') || a.parentElement, schoology_id: m[1], section_id: section, title: cleanText(a), ...(due ? { due } : {}) });
+  }
+  return out;
+}
+
 export function parseHomeList(doc) {
   return homeRowsIn(doc).map(({ el, ...r }) => r);
 }

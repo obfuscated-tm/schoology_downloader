@@ -15,6 +15,17 @@ export async function np(op, args = {}) {
   }
 }
 
+/**
+ * A failed change, in a few words. A 404 with no JSON body is a route neo-plan
+ * doesn't have yet (its own 404s answer {error:"not_found"}).
+ */
+export function failText(r) {
+  if (r.status === 401) return 'Token needed';
+  if (r.status === 0) return 'Can’t reach neo-plan';
+  if ((r.status === 404 || r.status === 405) && !r.data?.error) return 'neo-plan needs an update';
+  return 'Not saved';
+}
+
 // Fonts: the FontFace API adds them to the document's font set without adding
 // a node to Schoology's page. Families are prefixed so nothing on the page
 // picks them up by accident.

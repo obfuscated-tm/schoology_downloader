@@ -2,17 +2,19 @@
 //
 // Chip, left to right: "neo-plan", the class dot + name, Owen's own due date
 // (mono), then one state — Turn in (the yellow box) when can_turn_in,
-// Submitted when Schoology cleared it, Cleared when he did, Missing (in --time)
+// Submitted when Schoology cleared it, Turned in (Finished if not an
+// assignment) when he did, Missing (in --time)
 // when the gradebook says so. An assignment neo-plan doesn't have gets
-// "Add to neo-plan".
+// "Add to neo-plan". Remove takes it off neo-plan; a removed one shows
+// Removed and Add back.
 //
 // Submit detection: when this page shows the submission as made (on load, or
 // after the submit dialog changes it), the service worker posts a one-item
 // enrich. Reading only: nothing on the page is clicked or changed.
 
 import { parseAssignmentPage, parseSubmissionStatus, assignmentIdOf } from '../reader/parse/sync.js';
-import { metaText } from '../panel/today-format.js';
-import { np, createHost, el, classDot, onClick, debounce, UNDO_MS } from './ui.js';
+import { metaText, clearedWord } from '../panel/today-format.js';
+import { np, createHost, el, classDot, onClick, debounce, failText, UNDO_MS } from './ui.js';
 
 const CSS = `
 :host { display: block; margin: 8px 0; }
@@ -65,6 +67,14 @@ export function start({ doc = document, loc = location, send = (m) => chrome.run
       chip.append(b);
       return;
     }
+    if (it.removed) {
+      chip.append(el('span', 'dim', 'Removed'));
+      const b = el('button', 'add', 'Add back');
+      b.disabled = state.busy;
+      onClick(b, () => change('restore'));
+      chip.append(b);
+      return;
+    }
     if (it.class) {
       const c = el('span', 'cls');
       c.append(classDot(it.class), document.createTextNode(it.class.short_code || it.class.name || ''));
@@ -74,13 +84,13 @@ export function start({ doc = document, loc = location, send = (m) => chrome.run
     if (meta) chip.append(el('span', 'mono dim', meta));
     if (it.missing) chip.append(el('span', 'time', 'Missing'));
     if (state.ghost) {
-      chip.append(el('span', 'mono dim', 'Cleared'));
+      chip.append(el('span', 'mono dim', clearedWord(it)));
       const u = el('button', 'link', 'Undo');
       u.disabled = state.busy;
       onClick(u, undo);
       chip.append(u);
     } else if (it.cleared) {
-      chip.append(el('span', 'dim', it.cleared_by === 'schoology' ? 'Submitted' : 'Cleared'));
+      chip.append(el('span', 'dim', clearedWord(it)));
     } else if (it.can_turn_in) {
       const b = el('button', 'turnin', 'Turn in');
       b.setAttribute('aria-label', `Turn in ${it.title || ''}`.trim());
@@ -89,12 +99,18 @@ export function start({ doc = document, loc = location, send = (m) => chrome.run
       onClick(b, turnIn);
       chip.append(b);
     }
+    if (!state.ghost) {
+      const r = el('button', 'link dim', 'Remove');
+      r.setAttribute('aria-label', 'Remove from neo-plan');
+      r.disabled = state.busy;
+      onClick(r, () => change('remove'));
+      chip.append(r);
+    }
   }
 
   function fail(r) {
     if (r.status === 401) state.error = { text: 'Token needed', quiet: true };
-    else if (r.status === 0) state.error = { text: 'Can’t reach neo-plan' };
-    else state.error = { text: 'Not saved' };
+    else state.error = { text: failText(r) };
   }
 
   async function load() {
@@ -111,6 +127,17 @@ export function start({ doc = document, loc = location, send = (m) => chrome.run
     const r = await call('addItem', {
       item: { schoology_id: id, section_id: page.section_id, title: page.title, due_at: page.due_at, source_url: loc.origin + loc.pathname },
     });
+    state.busy = false;
+    if (r.ok && r.data) state.item = r.data; else fail(r);
+    draw();
+  }
+
+  // Remove from neo-plan, or add it back: the item as it is after.
+  async function change(op) {
+    const it = state.item;
+    if (state.busy || !it) return;
+    state.busy = true; state.error = null; draw();
+    const r = await call(op, { id: it.id });
     state.busy = false;
     if (r.ok && r.data) state.item = r.data; else fail(r);
     draw();

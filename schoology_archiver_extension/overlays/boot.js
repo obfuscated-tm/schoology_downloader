@@ -1,11 +1,18 @@
-// Content script (classic): loads the overlay for this page as a module from
-// the extension. The overlays only read the page and draw inside their own
+// Content script (classic): loads this page's overlays as modules from the
+// extension. The overlays only read the page and draw inside their own
 // shadow roots; they never click, submit or change Schoology's elements.
 (() => {
+  if (window.top !== window) return;
   const p = location.pathname;
-  let which = null;
-  if (/^\/assignment\/\d+(\/info)?\/?$/.test(p)) which = 'assignment';
-  else if (/^\/home\/?$/.test(p)) which = 'home';
-  if (!which) return;
-  import(chrome.runtime.getURL(`overlays/${which}.js`)).catch((e) => console.debug('[neo-plan overlay]', e));
+  const load = (which) => import(chrome.runtime.getURL(`overlays/${which}.js`)).catch((e) => console.debug('[neo-plan overlay]', e));
+
+  if (/^\/assignment\/\d+(\/info)?\/?$/.test(p)) load('assignment');
+  else if (/^\/home\/?$/.test(p)) load('home');
+  else if (/^\/course\/\d+\/materials\/?$/.test(p)) load('course');
+
+  // The neo-plan button: everywhere but assignments and tests.
+  const inWork = /^\/assignment\//.test(p)
+    || /assessment/i.test(p)
+    || /\/(take|start|resume|dropbox)(\/|$)/.test(p);
+  if (!inWork && !/^app\./i.test(location.hostname)) load('launcher');
 })();

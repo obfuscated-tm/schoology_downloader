@@ -1,4 +1,4 @@
-import { handleNeoplan } from './outputs/neoplan/api.js';
+import { handleNeoplan, getConfig } from './outputs/neoplan/api.js';
 import { requestSync, stopSync, syncRunning, reportSubmitted, sectionForRealm, SYNC_LOCK_ID, KEY_HOST } from './sync/runner.js';
 import { KEY_SNAPSHOT } from './sync/sync.js';
 
@@ -7,7 +7,7 @@ const SYNC_EVERY_MIN = 15;
 const TAB_SYNC_GAP_MS = 5 * 60_000; // a Schoology page load starts a sync, at most every 5 min
 // What a content script on a Schoology page may ask neo-plan. Never the token,
 // the server, the course map or a raw enrich.
-const CONTENT_OPS = new Set(['items', 'addItem', 'turnIn', 'putBack']);
+const CONTENT_OPS = new Set(['items', 'addItem', 'turnIn', 'putBack', 'remove', 'restore']);
 
 // The archiver lives in Chrome's side panel so Schoology stays visible next to it.
 // (A regular popup would close, and stop the archive, as soon as you click the page.)
@@ -75,6 +75,12 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg?.type === 'submitted') {
     if (from !== 'content') return false;
     reportSubmitted(msg).then(reply, (e) => reply({ ok: false, status: 0, data: { error: String(e?.message || e) } }));
+    return true;
+  }
+  if (msg?.type === 'neoplanServer') {
+    // Where the neo-plan card's frame points. The server, never the token.
+    if (from !== 'content' && from !== 'page') return false;
+    getConfig().then(({ server }) => reply({ ok: true, server }), () => reply({ ok: false }));
     return true;
   }
   if (msg?.type === 'sync') {
