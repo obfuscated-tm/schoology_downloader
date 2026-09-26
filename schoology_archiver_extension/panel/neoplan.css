@@ -269,6 +269,28 @@ body[data-settings] #viewToday { display: none; }
 #npSettings .hint { grid-column: 2; margin: 0; font-size: 13px; line-height: 18px; color: var(--np-ink-dim); }
 #npSettings .hint.bad { color: var(--np-time); }
 #npSettings .foot { margin-top: 16px; }
+#npSettings .rowname { font-weight: 600; }
+#npSettings .link:disabled { text-decoration: none; }
+
+/* Courses: each Schoology section and the column it files into. */
+#npSettings #npCourses[hidden] { display: none; }
+#npSettings #npCourses h2 { margin: 24px 0 8px; }
+#npSettings .courses { list-style: none; margin: 0; padding: 0; }
+#npSettings .courses li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 40%);
+  gap: 4px 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--np-line);
+}
+#npSettings .courses li:last-child { border-bottom: 0; }
+#npSettings .courses .name { min-width: 0; overflow-wrap: anywhere; }
+#npSettings .courses .sect { display: block; font-size: 13px; line-height: 18px; color: var(--np-ink-dim); }
+#npSettings .courses .pick { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#npSettings .courses select { flex: 1; min-width: 0; }
+#npSettings .courses .auto { flex: none; color: var(--np-ink-dim); }
+#npSettings #npCoursesHint { margin-top: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   .np *, #npTop * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }

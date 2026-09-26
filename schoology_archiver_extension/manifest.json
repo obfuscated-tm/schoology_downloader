@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Schoology Course Archiver",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Archive a Schoology course (files, Google Docs, assignments, your submissions, grades) into your Downloads folder, with an INDEX.md for AI study tools.",
   "action": {
     "default_title": "Open Schoology Archiver",
@@ -25,7 +25,9 @@
     "downloads.ui",
     "storage",
     "scripting",
-    "sidePanel"
+    "sidePanel",
+    "alarms",
+    "offscreen"
   ],
   "host_permissions": [
     "https://*.schoology.com/*",
@@ -34,6 +36,41 @@
     "https://*.googleusercontent.com/*",
     "https://neo-plan.vercel.app/*",
     "http://localhost:3000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.schoology.com/assignment/*",
+        "https://*.schoology.com/home",
+        "https://*.schoology.com/home?*",
+        "https://*.schoology.com/home/"
+      ],
+      "exclude_matches": [
+        "https://*.schoology.com/assignment/*/assessment*",
+        "https://*.schoology.com/assignment/*/dropbox*"
+      ],
+      "js": [
+        "overlays/boot.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "overlays/assignment.js",
+        "overlays/home.js",
+        "overlays/ui.js",
+        "reader/parse/sync.js",
+        "util.js",
+        "panel/today-format.js",
+        "panel/fonts/public-sans-latin.woff2",
+        "panel/fonts/ibm-plex-mono-latin-400.woff2"
+      ],
+      "matches": [
+        "https://*.schoology.com/*"
+      ]
+    }
   ],
   "commands": {
     "kill-archiver": {

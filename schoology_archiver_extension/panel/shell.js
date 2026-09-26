@@ -4,6 +4,7 @@
 
 import { np } from './np.js';
 import { createToday } from './today.js';
+import { createSyncSettings } from './sync-settings.js';
 
 const $ = (id) => document.getElementById(id);
 const VIEW_KEY = 'panelView';
@@ -13,6 +14,7 @@ const body = document.body;
 let view = null;
 let dateText = '';
 
+const syncSettings = createSyncSettings();
 const today = createToday({
   onDate: (text) => { dateText = text; drawTop(); },
   openUrl,
@@ -78,6 +80,7 @@ function closeSettings() {
   delete body.dataset.settings;
   $('npSettings').hidden = true;
   $('npSettingsBtn').setAttribute('aria-expanded', 'false');
+  syncSettings.hide();
   drawTop();
   if (view === 'today') { today.reset(); today.refresh(); }
 }
@@ -96,6 +99,7 @@ async function drawSettings(s) {
   $('npTokenNew').hidden = !!s.hasToken;
   $('npTokenMasked').textContent = s.masked || '';
   hint(s.hasToken ? '' : 'Make one in neo-plan Settings.');
+  await syncSettings.draw({ hasToken: !!s.hasToken });
 }
 
 function hint(text, bad = false) {

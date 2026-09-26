@@ -46,6 +46,19 @@
       </div>
       <p class="hint" id="npTokenHint">Make one in neo-plan Settings.</p>
     </div>
+    <div class="row" id="npSyncRow" hidden>
+      <span class="rowname">Schoology</span>
+      <div class="field">
+        <span id="npSyncTime" class="mono dim"></span>
+        <button id="npSyncNow" class="link">Check now</button>
+      </div>
+      <p class="hint" id="npSyncHint" role="status" hidden></p>
+    </div>
+    <div id="npCourses" hidden>
+      <h2 id="npCoursesTitle">Courses</h2>
+      <ul id="npCourseList" class="courses" aria-labelledby="npCoursesTitle"></ul>
+      <p class="hint" id="npCoursesHint" role="status" hidden></p>
+    </div>
     <div class="foot"><button id="npSettingsDone" class="link">Done</button></div>
   </section>
 

@@ -52,6 +52,17 @@ The side panel has two views, switched from the menu at the top right: **Today**
 
 It refreshes when the panel opens, when you come back to it, and every minute while it's showing. The token is kept in the extension and only the background worker sends it to neo-plan.
 
+## neo-plan and Schoology
+
+With a token saved, the extension also reads Schoology for neo-plan in the background: every 15 minutes while Chrome is open, when a Schoology page loads (at most every 5 minutes), and from **Check now** in Settings. It only reads (GET): the course list, the home page's upcoming and overdue lists, upcoming events, the gradebook of each course that is mapped to a neo-plan column, and the submission status of assignments neo-plan still has open (at most 40 per run, oldest first; a page that redirects, such as a newer quiz, is never followed). neo-plan then files items into the right column, clears work Schoology shows as submitted, and flags what the gradebook marks Missing. It never creates items on its own. A run never overlaps an Archive; an Archive started during a run waits a few seconds for it.
+
+- **Settings → Schoology**: when it last read Schoology, **Check now**, and one line if something went wrong (not signed in, token refused, archive running).
+- **Settings → Courses**: every Schoology section and the neo-plan column it files into. Ones neo-plan matched by name are marked `auto`; pick another (or None) to override.
+- **On an assignment page**: a small neo-plan chip under the title with the class, your due date, and **Turn in** (with Undo), **Submitted**, **Cleared** or **Missing**. If neo-plan doesn't have it: **Add to neo-plan**. When the page shows your submission as made, neo-plan is told right away.
+- **On the Schoology home page**: a marker at the end of each upcoming/overdue row: `○` in neo-plan, `✓` done, `Submitted`/`Cleared`, or `+` to add it.
+
+The overlays only read the page and draw in their own isolated elements: they never click, submit or change anything of Schoology's, and they never run on quiz or dropbox-submit pages.
+
 ## Stopping (kill switch)
 
 Any of these stops a run **immediately**: page loads are aborted, file writes in progress are discarded (no half-written files) and quiz-review tabs are closed.
@@ -84,10 +95,14 @@ Point Cowork at your archive folder's `<Course>/` subfolder and start with somet
 
 ## Code layout
 
-- `manifest.json`, `background.js` (run lock, kill switch), `util.js` (shared helpers)
+- `manifest.json`, `background.js` (run lock, kill switch, sync schedule, message routing), `util.js` (shared helpers)
 - `reader/`: everything that reads Schoology. `client.js` fetches pages (and refuses quiz-taking URLs); `parse/` turns pages into data (`materials`, `assignment`, `quiz`, `grades`, `feed`); `md.js` converts HTML to Markdown.
 - `outputs/archive/`: the archive run (`archiver.js`), file writing and change tracking (`saver.js`), the chosen folder (`folder.js`), Google exports (`google.js`).
-- `outputs/neoplan/api.js`: every call to neo-plan (token, server, fetch). Only the background worker imports it; the panel asks it by message.
+- `reader/parse/sync.js`: courses, home lists, events, gradebook rows, submission status and the assignment page, for the sync and the overlays.
+- `sync/`: `sync.js` is one run (Schoology reads → one enrich → a Snapshot in storage); `runner.js` is when it may run (lock, schedule, kill switch) and submit detection. `offscreen/` parses pages for it (the background worker has no DOMParser).
+- `overlays/`: content scripts on assignment pages and `/home`. `boot.js` loads `assignment.js` or `home.js` as a module; `ui.js` is their shadow-DOM styling.
+- `outputs/neoplan/api.js`: every call to neo-plan (token, server, fetch). Only the background worker imports it; the panel and content scripts ask it by message (content scripts may only read items, add one, turn in and put back).
+- `panel/sync-settings.js`: the Schoology line and Courses in Settings.
 - `panel/`: the side panel. `archive.html` is the page; `archive.js`/`archive.css` are the Archive view; `shell.js` is the view switcher and Settings; `today.js` (+ `today-format.js`, `np.js`) is the Today view; `neoplan.css` and `fonts/` are neo-plan's look (Public Sans and IBM Plex Mono, bundled).
 
 ## Known limits

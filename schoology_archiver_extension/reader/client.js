@@ -53,18 +53,23 @@ export class SchoologyClient {
     return tabs[0]?.id ?? null;
   }
 
-  async raw(url) {
+  // noRedirect: a redirect is reported ({ redirected: true }) and never
+  // followed, so the page it points at is not requested at all.
+  async raw(url, noRedirect = false) {
+    const redirect = noRedirect ? 'manual' : 'follow';
     if (this.mode === 'direct') {
-      const r = await fetch(url, { credentials: 'include', signal: this.signal });
+      const r = await fetch(url, { credentials: 'include', signal: this.signal, redirect });
+      if (r.type === 'opaqueredirect') return { status: 0, url, text: '', redirected: true };
       return { status: r.status, url: r.url, text: await r.text() };
     }
     const [res] = await chrome.scripting.executeScript({
       target: { tabId: this.tabId },
-      func: async (u) => {
-        const r = await fetch(u, { credentials: 'include' });
+      func: async (u, redir) => {
+        const r = await fetch(u, { credentials: 'include', redirect: redir });
+        if (r.type === 'opaqueredirect') return { status: 0, url: u, text: '', redirected: true };
         return { status: r.status, url: r.url, text: await r.text() };
       },
-      args: [url],
+      args: [url, redirect],
     });
     if (!res || !res.result) throw new Error('Could not read page through the Schoology tab (was it closed?)');
     return res.result;
@@ -84,7 +89,7 @@ export class SchoologyClient {
     return { doc, url: r.url };
   }
 
-  async getText(url) {
+  async getText(url, { noRedirect = false } = {}) {
     url = this.abs(url);
     if (isQuizTakingUrl(url)) throw new Error(`refused to open a quiz-taking page (${new URL(url).pathname})`);
     let lastErr;
@@ -93,7 +98,7 @@ export class SchoologyClient {
       await this.throttle();
       let r;
       try {
-        r = await this.raw(url);
+        r = await this.raw(url, noRedirect);
       } catch (e) {
         throwIfStopped(this.signal);
         // A redirect to Google sign-in shows up as a CORS TypeError.
@@ -102,6 +107,7 @@ export class SchoologyClient {
         await sleep(1500 * (attempt + 1), this.signal);
         continue;
       }
+      if (r.redirected) return { text: '', url, redirected: true };
       if (r.status === 429 || r.status >= 500) {
         lastErr = new Error(`HTTP ${r.status}`);
         await sleep(3000 * (attempt + 1), this.signal);
