@@ -6,8 +6,11 @@ const SYNC_ALARM = 'neoplan-sync';
 const SYNC_EVERY_MIN = 15;
 const TAB_SYNC_GAP_MS = 5 * 60_000; // a Schoology page load starts a sync, at most every 5 min
 // What a content script on a Schoology page may ask neo-plan. Never the token,
-// the server, the course map or a raw enrich.
-const CONTENT_OPS = new Set(['items', 'addItem', 'turnIn', 'putBack', 'remove', 'restore']);
+// the server, the course map or a raw enrich. Never Turn in either: on
+// Schoology's pages work is turned in only with Schoology's own Submit button.
+const CONTENT_OPS = new Set(['items', 'addItem', 'remove', 'restore']);
+// A Materials page's "Sync now": { host, courseId, at } for the archive panel.
+const ARCHIVE_REQUEST = 'archiveRequest';
 
 // The archiver lives in Chrome's side panel so Schoology stays visible next to it.
 // (A regular popup would close, and stop the archive, as soon as you click the page.)
@@ -81,6 +84,17 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     // Where the neo-plan card's frame points. The server, never the token.
     if (from !== 'content' && from !== 'page') return false;
     getConfig().then(({ server }) => reply({ ok: true, server }), () => reply({ ok: false }));
+    return true;
+  }
+  if (msg?.type === 'archiveCourse') {
+    // "Sync now" on a Materials page: the archiver runs in the side panel, so
+    // open it (now, while Chrome still counts the click) and leave it the course.
+    if (from !== 'content' || !sender.tab || !/^\d{1,20}$/.test(String(msg.courseId || ''))) return false;
+    const host = new URL(sender.url).host.toLowerCase();
+    const opened = chrome.sidePanel.open({ tabId: sender.tab.id }).then(() => true, () => false);
+    chrome.storage.session.set({ [ARCHIVE_REQUEST]: { host, courseId: String(msg.courseId), at: Date.now() } })
+      .then(() => opened)
+      .then((ok) => reply({ ok: true, opened: ok }), () => reply({ ok: false }));
     return true;
   }
   if (msg?.type === 'sync') {

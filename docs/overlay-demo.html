@@ -1,0 +1,535 @@
+<meta charset="utf-8">
+<title>Schoology Overlay Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --ground:#EEF0F3; --surface:#FFFFFF; --sunk:#F6F7F9;
+  --ink:#1F2429; --dim:#5E6670; --faint:#8A929B; --line:#DCE0E5;
+  --accent:#1D5EA8; --accent-soft:#E7EFF8;
+  --good:#23794A; --good-soft:#E6F3EC; --bad:#B8430F; --bad-soft:#FBEDE5; --ready:#FFD400;
+  /* host (Schoology-like) */
+  --h-ink:#333333; --h-dim:#777777; --h-line:#E4E4E4; --h-cat:#F5F5F5; --h-bar:#3B4550;
+  --sans:"Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --host:"Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
+  --r:6px;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font:14px/1.45 var(--sans);padding-inline:16px;padding-block:20px 48px}
+.wrap{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.demo-bar{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+.demo-bar h1{font-size:18px;margin:0;font-weight:600}
+.demo-bar p{margin:2px 0 0;color:var(--dim);font-size:13px;max-width:62ch}
+.key{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent);vertical-align:-1px;margin-right:4px}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:2px}
+.seg button{border:0;background:none;padding:5px 12px;border-radius:4px;color:var(--dim);font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+
+/* host page */
+.host{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;font-family:var(--host);color:var(--h-ink)}
+.host-top{display:flex;align-items:center;gap:16px;padding:10px 16px;background:var(--h-bar);color:#E9EDF1;font-size:13px}
+.host-top b{font-weight:600}
+.host-top span{opacity:.75}
+.host-top .mock{margin-left:auto;font-family:var(--mono);font-size:11px;opacity:.6}
+.host-body{padding:16px;display:flex;flex-direction:column;gap:12px}
+.host-title{font-size:20px;font-weight:bold;margin:0}
+.host-sub{color:var(--h-dim);font-size:13px}
+
+/* gradebook */
+.gb-wrap{overflow-x:auto}
+.gb{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
+.gb th{font-weight:normal;color:var(--h-dim);text-align:left;padding:6px 8px;border-bottom:2px solid var(--h-line);font-size:12px}
+.gb td{padding:7px 8px;border-bottom:1px solid var(--h-line);vertical-align:middle}
+.gb .g{text-align:right;white-space:nowrap}
+.gb .x{text-align:right;white-space:nowrap;width:1%;font-family:var(--sans)}
+.gb tr.course td{font-weight:bold;background:#FAFAFA}
+.gb tr.cat td{background:var(--h-cat);font-weight:bold}
+.gb .due{display:block;color:var(--h-dim);font-size:11px;font-weight:normal}
+.gb tr.item td:first-child{padding-left:24px}
+.gb tr.item.graded-wi td{background:var(--accent-soft)}
+
+/* extension additions: always blue-family, own font */
+.ext{font-family:var(--sans);font-weight:normal}
+.imp{font:500 11px/16px var(--mono);padding:0 5px;border-radius:3px;display:inline-block;min-width:44px;text-align:center}
+.imp.neg{color:var(--bad);background:var(--bad-soft)}
+.imp.pos{color:var(--good);background:var(--good-soft)}
+.wi{display:inline-flex;align-items:center;gap:3px;font:12px var(--mono);color:var(--dim)}
+.wi input{width:66px;padding:2px 5px;border:1px dashed var(--accent);border-radius:4px;text-align:right;font:12px var(--mono);background:var(--surface);color:var(--ink)}
+.wi input::placeholder{color:var(--accent);opacity:.7;font-family:var(--sans)}
+.wi input:not(:placeholder-shown){border-style:solid;background:var(--accent-soft)}
+.cushion{font-size:12px;color:var(--accent);white-space:nowrap}
+.proj{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--accent);margin-left:8px}
+.proj .num{font-weight:500}
+.linkbtn{border:0;background:none;color:var(--accent);padding:0;text-decoration:underline;text-underline-offset:2px;font-size:12px;font-family:var(--sans)}
+.spark{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:2px 4px;border-radius:4px;color:var(--accent);font:12px var(--sans)}
+.spark:hover{background:var(--accent-soft)}
+.spark svg{display:block}
+tr.chart-row td{background:var(--surface)!important;padding:12px 16px 16px;border-bottom:1px solid var(--h-line)}
+.chart{position:relative;max-width:640px}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart-note{display:flex;flex-wrap:wrap;gap:4px 20px;font:12px var(--sans);color:var(--dim);margin-top:8px}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font:12px/1.4 var(--sans);padding:6px 8px;border-radius:4px;white-space:nowrap;transform:translate(-50%,-100%);margin-top:-10px}
+.tip b{font-family:var(--mono);font-weight:500}
+.tip .s{opacity:.7}
+tr.hypo td{border-bottom:1px dashed var(--h-line)}
+.hypo-in{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font:12px var(--sans);color:var(--dim)}
+.hypo-in input[type=text]{width:150px;padding:2px 6px;border:1px dashed var(--accent);border-radius:4px;font:12px var(--sans)}
+.hypo-in input[type=number]{width:52px;padding:2px 5px;border:1px dashed var(--accent);border-radius:4px;text-align:right;font:12px var(--mono)}
+.need{font-size:12px;color:var(--accent)}
+.need b{font-family:var(--mono);font-weight:500}
+.add-hypo{font-size:12px}
+
+/* assignment chip */
+.chip{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:5px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);font:13px var(--sans);color:var(--ink);align-self:flex-start;max-width:100%}
+.chip .sep{width:1px;height:14px;background:var(--line)}
+.cls{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:#1F5D8C;display:inline-block}
+.pill{font:500 12px var(--mono);padding:0 6px;border-radius:4px}
+.pill.bad{color:var(--bad);background:var(--bad-soft)}
+.pill.ok{color:var(--good);background:var(--good-soft)}
+.turnin{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:0;font-weight:500}
+.turnin .box{width:16px;height:16px;border-radius:3px;background:var(--ready);border:1px solid var(--dim)}
+.turnin[data-done="true"] .box{background:var(--surface)}
+.muted{color:var(--dim)}
+.instr{color:var(--h-ink);font-size:14px;line-height:1.5;max-width:66ch;margin:4px 0 0}
+.att{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.att a{color:#0677BA;text-decoration:none}
+.host-box{border-top:1px solid var(--h-line);padding-top:12px;display:grid;gap:8px}
+.host-box h3{margin:0;font-size:14px}
+.note{font:12px var(--sans);color:var(--faint)}
+
+
+/* materials page */
+.subnav{display:flex;gap:18px;border-bottom:1px solid var(--h-line);font-size:13px;color:var(--h-dim)}
+.subnav span{padding:6px 0}
+.subnav .on{color:var(--h-ink);font-weight:bold;border-bottom:2px solid var(--h-ink);margin-bottom:-1px}
+.strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--sunk);font:13px var(--sans);color:var(--dim)}
+.strip label{display:inline-flex;align-items:center;gap:6px;color:var(--ink);cursor:pointer}
+.strip input{accent-color:var(--accent)}
+.strip .sp{margin-left:auto}
+.mat{border-top:1px solid var(--h-line)}
+.mrow{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 8px;border-bottom:1px solid var(--h-line);font-size:14px}
+.mrow.child{padding-left:32px}
+.mrow a,.mrow .ttl{color:#0677BA;text-decoration:none}
+.mrow button.ttl{border:0;background:none;padding:0;text-align:left;font:inherit;color:#0677BA}
+.mrow .sub{display:block;font-size:11px;color:var(--h-dim)}
+.ico{width:20px;height:16px;border-radius:2px;display:grid;place-items:center;font:600 8px/1 var(--host);color:#fff}
+.ico.fold{background:#D9A73A;border-top-left-radius:0}
+.ico.pdf{background:#B7B7B7}
+.ico.asg{background:#6E8FAE}
+.ico.pg{background:#9AA7A0}
+.right{display:flex;align-items:center;gap:10px;justify-content:flex-end;flex-wrap:wrap;font:12px var(--sans)}
+.sum{color:var(--dim)}
+.sum .bad{color:var(--bad)}
+.scored{font:12px var(--mono);color:var(--faint);min-width:52px;text-align:right}
+.st{display:inline-flex;align-items:center;gap:6px}
+.st .circle{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--dim)}
+.st.done .circle{background:var(--ink);border-color:var(--ink)}
+.chev{display:inline-block;width:10px;color:var(--h-dim);font-size:10px}
+.mnote{font:12px var(--sans);color:var(--faint)}
+
+/* assignment page */
+.alayout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:24px}
+.aside{display:flex;flex-direction:column;gap:12px}
+.hbtn{border:1px solid #c9c9c9;background:linear-gradient(#fff,#f1f1f1);border-radius:3px;padding:7px 12px;font:bold 13px var(--host);color:var(--h-ink);text-align:center}
+.hcard{border:1px solid var(--h-line);border-radius:3px;padding:10px 12px;font-size:13px;display:grid;gap:4px}
+.hcard h4{margin:0;font-size:12px;color:var(--h-dim);font-weight:normal;text-transform:uppercase;letter-spacing:.04em}
+.hcard .gv{font-size:18px;font-weight:bold}
+.also{border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:grid;gap:2px;font:13px var(--sans);max-width:640px}
+.also h3{margin:0 0 4px;font-size:12px;font-weight:600;color:var(--dim)}
+.also .r{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-top:1px solid var(--sunk)}
+.also .r:first-of-type{border-top:0}
+.also a{color:var(--ink);text-decoration:none}
+.also a:hover{text-decoration:underline}
+.wiside{border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;font:13px var(--sans);display:grid;gap:6px;color:var(--dim)}
+.wiside input{width:60px;padding:2px 6px;border:1px dashed var(--accent);border-radius:4px;text-align:right;font:13px var(--mono)}
+.wiside b{font-family:var(--mono);font-weight:500;color:var(--ink)}
+.variant{display:inline-flex;gap:4px;font:12px var(--sans)}
+.variant button{border:1px solid var(--line);background:var(--surface);border-radius:4px;padding:3px 8px;color:var(--dim)}
+.variant button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+@media (max-width:760px){ .alayout{grid-template-columns:1fr} .strip .sp{margin-left:0} }
+
+/* Schoology-only view */
+.vt{margin-left:auto;display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;border-radius:999px;padding:2px 10px 2px 4px;font:12px var(--sans)}
+.vt .sw{width:28px;height:16px;border-radius:8px;background:rgba(255,255,255,.3);position:relative}
+.vt .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;transition:left .15s}
+.vt[aria-pressed="true"] .sw{background:var(--accent)}
+.vt[aria-pressed="true"] .sw::after{left:14px}
+.host-top .mock{margin-left:0}
+.plain .ext,.plain .chip,.plain .gb .x,.plain tr.hypo,.plain tr.chart-row{display:none!important}
+.plain .gb tr.item.graded-wi td{background:transparent}
+
+@media (max-width:640px){ .host-top > span:not(.mock){display:none} .host-top .mock{display:none} }
+</style>
+
+<div class="wrap">
+  <div class="demo-bar">
+    <div>
+      <h1>Schoology overlay demo</h1>
+      <p><span class="key"></span>Blue marks are what the extension adds. The Overlay switch in the page's top bar turns them off to show plain Schoology (Alt+S does the same). Real AP CS A grades from your archive; the 30 / 70 weights are inferred.</p>
+    </div>
+    <div class="seg" role="group" aria-label="Page">
+      <button id="tab-grades" aria-pressed="true">Grades page</button>
+      <button id="tab-mat" aria-pressed="false">Materials page</button>
+      <button id="tab-assign" aria-pressed="false">Assignment page</button>
+    </div>
+  </div>
+
+  <div class="host" id="page-grades">
+    <div class="host-top"><b>Grades</b><span>Courses &#xB7; Groups &#xB7; Resources</span><button class="vt" data-vt aria-pressed="true" title="Switch between the overlay and plain Schoology (Alt+S)"><span class="sw"></span><span>Overlay</span></button><span class="mock">Schoology page (mock)</span></div>
+    <div class="host-body">
+      <h2 class="host-title">AP Comp Sci A: McLeodT p2 T1</h2>
+      <div class="gb-wrap">
+        <table class="gb">
+          <thead><tr><th>Item</th><th class="g">Grade</th><th class="x"><span class="ext" style="color:var(--accent)">Impact</span></th></tr></thead>
+          <tbody id="gb"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="host" id="page-mat" hidden>
+    <div class="host-top"><b>AP Comp Sci A</b><span>Courses &#xB7; Groups &#xB7; Resources</span><button class="vt" data-vt aria-pressed="true" title="Switch between the overlay and plain Schoology (Alt+S)"><span class="sw"></span><span>Overlay</span></button><span class="mock">Schoology page (mock)</span></div>
+    <div class="host-body">
+      <h2 class="host-title">AP Comp Sci A: McLeodT p2 T1</h2>
+      <div class="subnav"><span class="on">Materials</span><span>Updates</span><span>Grades</span><span>Members</span></div>
+      <div class="strip ext">
+        <label><input type="checkbox" id="only-open"> Only open work</label>
+        <span id="open-count"></span>
+        <span class="sp">Archive saved <span id="arch-when">2 days ago</span> &#xB7; <button class="linkbtn" id="arch-sync">Sync now</button></span>
+      </div>
+      <div class="mat" id="mat"></div>
+      <div class="mnote">Folders open in place here to save clicks; in Schoology they open their own page. Scores come from the gradebook, and the circles are neo-plan's done state.</div>
+    </div>
+  </div>
+
+  <div class="host" id="page-assign" hidden>
+    <div class="host-top"><b>AP Comp Sci A</b><span>Materials &#xB7; Updates &#xB7; Grades</span><button class="vt" data-vt aria-pressed="true" title="Switch between the overlay and plain Schoology (Alt+S)"><span class="sw"></span><span>Overlay</span></button><span class="mock">Schoology page (mock)</span></div>
+    <div class="host-body">
+      <div class="variant" role="group" aria-label="Example"><button id="v-open" aria-pressed="true">Not turned in</button><button id="v-graded" aria-pressed="false">Graded</button></div>
+      <div id="asg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const W = { "Labs & Homework": 30, "Tests & Quizzes": 70 };
+const L = "Labs & Homework", T = "Tests & Quizzes";
+const RAW = [
+["Academic Integrity Policy","8/17/26 11:59pm",5,5,L],["Course Information Agreement","8/17/26 11:59pm",5,5,L],["Sign Up For College Board Class P2","8/17/26 11:59pm",5,5,L],
+["Video 1 HW Checkpoint","8/18/26 11:59pm",10,10,L],["Video 1 HW Submission","8/18/26 11:59pm",10,10,L],["Video 2 HW Submission","8/19/26 11:59pm",5,5,L],["Video 3 HW Submission","8/19/26 11:59pm",5,5,L],
+["Worksheet 0.1 For Loops","8/20/26 10:05am",5,5,L],["Lab 1.1 FirstHouse","8/24/26 11:59pm",10,10,L],["Lab 1.2 SecondHouse","8/25/26 11:59pm",10,10,L],["Lab 2.1 FinalHouse Checkpoint","8/26/26 11:59pm",10,10,L],
+["Lab 2.2 Final House","8/30/26 7:00pm",10,10,L],["Worksheets 3.1 and 3.2","9/01/26 10:05am",10,10,L],["Lab 4.1 Sphere","9/02/26 11:59pm",10,10,L],["Lesson 1-4 Practice Test","9/08/26 10:05am",10,10,L],
+["Lab 2.3 CoolHouse","9/09/26 11:59pm",10,10,L],["Worksheet 5.2","9/09/26 11:59pm",10,10,L],["Worksheet 5.1","9/10/26 10:05am",10,10,L],["Lab 5.2 Illusions","9/13/26 11:59pm",10,10,L],
+["Lesson 0-4 Checkpoint","9/14/26 10:05am",10,10,L],["Lab 6.1 Taxes","9/15/26 11:59pm",null,10,L],["Worksheet 6.4 Random","9/17/26 10:05am",10,10,L],["Worksheets 7.1 and 7.2","9/17/26 10:05am",10,10,L],
+["In Class Lab 6.3 - BankAccount","9/17/26 4:00pm",null,10,L],["Worksheets 8.1 and 8.2","9/20/26 11:59pm",10,10,L],["Worksheet 7.3 - Scanner & printf Review","9/22/26 4:00pm",10,10,L],
+["Lab 8.2 Happiness Detector","9/22/26 11:59pm",null,10,L],["Lab 7.1 MadLibs (optional)","9/23/26 11:59pm",null,10,L],["Lab 8.1 CheckMail","9/23/26 11:59pm",null,10,L],
+["Lesson 14 DeMorgan's Laws Checkpoint","9/23/26 11:59pm",10,10,L],["In-class Lab 6.2 - Static Review","9/29/26 4:00pm",null,10,L],
+["Lesson 0 Videos 1,2,3 HW Quiz","8/25/26 10:05am",10,10,T],["Lesson 0 Quiz","8/27/26 10:05am",19.05,20,T],["HW Quiz 1.1-2.1","9/01/26 10:05am",9,10,T],
+["HW Quiz 3-4","9/08/26 10:05am",10,10,T],["Lesson 0-4 Test","9/14/26 10:05am",47.44,50,T],["HW Quiz 5-6","9/17/26 10:05am",10,10,T],["HW Quiz 7-8","9/24/26 10:05am",null,10,T],
+];
+function parseDue(s){const m=s.match(/(\d+)\/(\d+)\/(\d+) (\d+):(\d+)(am|pm)/);let h=+m[4]%12;if(m[6]==="pm")h+=12;return new Date(2000+ +m[3],m[1]-1,+m[2],h,+m[5]);}
+const ITEMS = RAW.map((r,i)=>({id:i,title:r[0],dueS:r[1],due:parseDue(r[1]),earned:r[2],pts:r[3],cat:r[4]}));
+const SCALE=[["A",93],["A-",90],["B+",87],["B",83],["B-",80],["C+",77],["C",73],["C-",70],["D",60],["F",0]];
+const letter=p=>SCALE.find(s=>p>=s[1])[0];
+const fmt=(p,d=2)=>p.toFixed(d)+"%";
+const sgn=d=>(d>0?"+":d<0?"\u2212":"\u00B1")+Math.abs(d).toFixed(2);
+const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+function calc(list){
+  const c={};
+  for(const it of list){ if(it.earned==null) continue; (c[it.cat]||=({e:0,p:0})); c[it.cat].e+=it.earned; c[it.cat].p+=it.pts; }
+  let num=0,den=0; const cats={};
+  for(const k in W){ if(c[k]&&c[k].p>0){ const pct=c[k].e/c[k].p*100; cats[k]=pct; num+=W[k]*pct; den+=W[k]; } }
+  return {course: den?num/den:null, cats};
+}
+const whatIf={};           // id -> score
+const hypos={[L]:null,[T]:{name:"Unit 5-8 Test",pts:50,score:null}}; // one hypothetical per category
+function current(){
+  const list=ITEMS.map(it=> it.earned==null && whatIf[it.id]!=null ? {...it,earned:whatIf[it.id]} : it);
+  for(const k in hypos){ const h=hypos[k]; if(h && h.score!=null) list.push({earned:h.score,pts:h.pts,cat:k}); }
+  return list;
+}
+const BASE=calc(ITEMS);
+const isWI=()=>Object.keys(whatIf).length>0 || Object.values(hypos).some(h=>h&&h.score!=null);
+let chartOpen=true;
+
+/* replay history */
+function history(){
+  const graded=ITEMS.filter(i=>i.earned!=null).sort((a,b)=>a.due-b.due);
+  const pts=[],seen=[];
+  for(const it of graded){ seen.push(it); const v=calc(seen).course; const day=new Date(it.due.getFullYear(),it.due.getMonth(),it.due.getDate());
+    const last=pts[pts.length-1]; if(last&&+last.day===+day){last.v=v;last.items.push(it.title);} else pts.push({day,v,items:[it.title]}); }
+  return pts;
+}
+const HIST=history();
+
+function sparkSVG(){
+  const w=80,h=18, x0=+HIST[0].day, x1=+HIST[HIST.length-1].day;
+  const lo=Math.min(...HIST.map(p=>p.v)), hi=100;
+  const X=d=>2+(d-x0)/(x1-x0)*(w-6), Y=v=>2+(hi-v)/(hi-lo||1)*(h-4);
+  let d=`M${X(+HIST[0].day)},${Y(HIST[0].v)}`; for(let i=1;i<HIST.length;i++) d+=` H${X(+HIST[i].day)} V${Y(HIST[i].v)}`;
+  const l=HIST[HIST.length-1];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${d}" fill="none" stroke="var(--accent)" stroke-width="1.5"/><circle cx="${X(+l.day)}" cy="${Y(l.v)}" r="2.5" fill="var(--accent)"/></svg>`;
+}
+
+function chartHTML(){
+  const pts=HIST, proj=isWI()?calc(current()).course:null;
+  const w=600,h=200,m={l:36,r:70,t:12,b:24};
+  const x0=pts[0].day, x1=new Date(2026,8,29);
+  const vals=pts.map(p=>p.v).concat(proj??[]);
+  const ymin=Math.min(92,Math.floor(Math.min(...vals)-1)), ymax=100;
+  const X=d=>m.l+(d-x0)/(x1-x0)*(w-m.l-m.r), Y=v=>m.t+(ymax-v)/(ymax-ymin)*(h-m.t-m.b);
+  let g="";
+  for(let v=ymin; v<=ymax; v+=2) g+=`<line x1="${m.l}" x2="${w-m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--sunk)"/><text x="${m.l-8}" y="${Y(v)+4}" text-anchor="end" font-size="11" fill="var(--faint)" font-family="JetBrains Mono, monospace">${v}</text>`;
+  g+=`<line x1="${m.l}" x2="${w-m.r}" y1="${Y(93)}" y2="${Y(93)}" stroke="var(--dim)" stroke-dasharray="3 3"/><text x="${w-m.r+6}" y="${Y(93)+4}" font-size="11" fill="var(--dim)" font-family="Instrument Sans, sans-serif">A cutoff</text>`;
+  for(const d of [new Date(2026,7,17),new Date(2026,8,1),new Date(2026,8,15)]) g+=`<text x="${X(d)}" y="${h-6}" text-anchor="middle" font-size="11" fill="var(--faint)" font-family="JetBrains Mono, monospace">${d.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</text>`;
+  let path=`M${X(pts[0].day)},${Y(pts[0].v)}`; for(let i=1;i<pts.length;i++) path+=` H${X(pts[i].day)} V${Y(pts[i].v)}`;
+  const lastX=X(new Date(2026,8,26)); path+=` H${lastX}`;
+  g+=`<path d="${path} V${h-m.b} H${X(pts[0].day)} Z" fill="var(--accent)" fill-opacity=".07"/><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  const lp=pts[pts.length-1];
+  g+=`<circle cx="${lastX}" cy="${Y(lp.v)}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/><text x="${lastX+8}" y="${Y(lp.v)+(proj!=null&&proj>lp.v?14:-6)}" font-size="11" fill="var(--ink)" font-family="JetBrains Mono, monospace">${lp.v.toFixed(2)}</text>`;
+  if(proj!=null) g+=`<line x1="${lastX}" y1="${Y(lp.v)}" x2="${X(x1)}" y2="${Y(proj)}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3"/><circle cx="${X(x1)}" cy="${Y(proj)}" r="4" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="${X(x1)+8}" y="${Y(proj)+4}" font-size="11" fill="var(--accent)" font-family="JetBrains Mono, monospace">${proj.toFixed(2)}</text>`;
+  g+=`<line class="xh" y1="${m.t}" y2="${h-m.b}" stroke="var(--dim)" visibility="hidden"/><circle class="xd" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/><rect class="hit" x="${m.l}" y="0" width="${lastX-m.l}" height="${h}" fill="transparent"/>`;
+  const lo=pts.reduce((a,b)=>b.v<a.v?b:a);
+  const dd=d=>d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  return {html:`<div class="chart"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Course grade over the term, now ${lp.v.toFixed(2)}%">${g}</svg><div class="tip" hidden></div></div>
+    <div class="chart-note"><span>Replayed from graded items by due date</span><span>Lowest <span class="num">${fmt(lo.v)}</span> on ${dd(lo.day)}</span>${proj!=null?`<span style="color:var(--accent)">Dashed line is your what-if</span>`:""}</div>`, X, Y, w, h, pts};
+}
+function wireChart(root,c){
+  const svg=root.querySelector("svg"),tip=root.querySelector(".tip"),xh=svg.querySelector(".xh"),xd=svg.querySelector(".xd");
+  const hit=svg.querySelector(".hit");
+  hit.addEventListener("pointermove",e=>{
+    const r=svg.getBoundingClientRect(), sx=(e.clientX-r.left)/r.width*c.w;
+    let best=c.pts[0]; for(const p of c.pts) if(c.X(p.day)<=sx) best=p;
+    const px=c.X(best.day),py=c.Y(best.v);
+    xh.setAttribute("x1",px);xh.setAttribute("x2",px);xh.setAttribute("visibility","visible");
+    xd.setAttribute("cx",px);xd.setAttribute("cy",py);xd.setAttribute("visibility","visible");
+    tip.hidden=false; tip.style.left=(px/c.w*100)+"%"; tip.style.top=(py/c.h*r.height)+"px";
+    const more=best.items.length>1?` +${best.items.length-1} more`:"";
+    tip.innerHTML=`<b>${best.v.toFixed(2)}%</b> \u00B7 ${best.day.toLocaleDateString("en-US",{month:"short",day:"numeric"})}<br><span class="s">${esc(best.items[best.items.length-1])}${more}</span>`;
+  });
+  hit.addEventListener("pointerleave",()=>{tip.hidden=true;xh.setAttribute("visibility","hidden");xd.setAttribute("visibility","hidden");});
+}
+
+/* impact of each graded item: course with it minus course without it */
+const IMPACT=new Map(ITEMS.filter(i=>i.earned!=null).map(it=>[it.id, BASE.course-calc(ITEMS.filter(x=>x!==it)).course]));
+
+/* lowest a category can fall and still keep target */
+function cushion(cat,target=93){
+  const r=calc(current()); let other=0,den=0;
+  for(const k in W){ if(r.cats[k]==null) continue; den+=W[k]; if(k!==cat) other+=W[k]*r.cats[k]; }
+  return (target*den-other)/W[cat];
+}
+/* score needed on a hypothetical item to keep target */
+function needFor(cat,pts,target){
+  const base=current().filter(x=>!(x.cat===cat && hypos[cat] && x.pts===hypos[cat].pts && x.earned===hypos[cat].score && !("id" in x)));
+  const at=x=>calc([...base,{earned:x,pts,cat}]).course;
+  const c0=at(0),c1=at(pts);
+  if(c0>=target) return 0; if(c1<target) return Infinity;
+  return (target-c0)/(c1-c0)*pts;
+}
+
+function render(){
+  const tb=document.getElementById("gb"), r=calc(current()), wi=isWI();
+  const focusId=document.activeElement?.id, caret=document.activeElement?.value;
+  let h=`<tr class="course"><td>Course grade
+      <button class="spark ext" id="spark" aria-expanded="${chartOpen}" title="Show grade over the term">${sparkSVG()}<span>${chartOpen?"Hide graph":"Graph"}</span></button></td>
+    <td class="g">A (97%)${wi?`<span class="proj ext">\u2192 <span class="num">${letter(r.course)} ${fmt(r.course)}</span><span class="imp ${r.course<BASE.course?"neg":"pos"}">${sgn(r.course-BASE.course)}</span><button class="linkbtn" id="reset">Reset</button></span>`:""}</td>
+    <td class="x"><span class="cushion ext num">${(BASE.course-93).toFixed(2)} above A</span></td></tr>`;
+  if(chartOpen) h+=`<tr class="chart-row"><td colspan="3" id="chart-cell"></td></tr>`;
+  for(const cat in W){
+    const pct=BASE.cats[cat], cu=cushion(cat);
+    h+=`<tr class="cat"><td>${cat} <span class="ext" style="color:var(--h-dim);font-size:12px">weight ${W[cat]}%</span></td>
+      <td class="g">${letter(pct)} (${pct.toFixed(1)}%)${wi&&Math.abs(r.cats[cat]-pct)>0.005?`<span class="proj ext">\u2192 <span class="num">${fmt(r.cats[cat],1)}</span></span>`:""}</td>
+      <td class="x"><span class="cushion ext" title="Lowest this category can fall with the other one unchanged and still keep an A">A holds down to <span class="num">${cu<=0?"0":fmt(cu,1)}</span></span></td></tr>`;
+    for(const it of ITEMS.filter(i=>i.cat===cat)){
+      const d=IMPACT.get(it.id);
+      const grade = it.earned!=null ? `${it.earned} / ${it.pts}`
+        : `<span class="wi ext"><input id="wi-${it.id}" type="number" min="0" step="0.5" placeholder="what if" aria-label="What-if score for ${esc(it.title)}" value="${whatIf[it.id]??""}">/${it.pts}</span>`;
+      const imp = d==null || Math.abs(d)<0.005 ? "" : `<span class="imp ${d<0?"neg":"pos"} ext" title="Course grade with this item minus without it">${sgn(d)}</span>`;
+      h+=`<tr class="item${whatIf[it.id]!=null?" graded-wi":""}"><td>${esc(it.title)}<span class="due">Due ${it.dueS}</span></td><td class="g">${it.earned==null?`<span style="color:var(--h-dim);margin-right:8px">\u2014</span>`:""}${grade}</td><td class="x">${imp}</td></tr>`;
+    }
+    const hp=hypos[cat];
+    if(hp){
+      const need=needFor(cat,hp.pts,93);
+      const needTxt = need===0?"any score keeps an A":need===Infinity?"an A is out of reach with this alone":`need <b>${(Math.ceil(need*100)/100)}/${hp.pts}</b> for an A`;
+      h+=`<tr class="hypo"><td colspan="3"><div class="hypo-in ext"><span>Upcoming</span><input type="text" id="hn-${cat}" value="${esc(hp.name)}" aria-label="Upcoming item name"><span>worth</span><input type="number" id="hp-${cat}" min="1" value="${hp.pts}" aria-label="Points"><span>score</span><input type="number" id="hs-${cat}" min="0" step="0.5" placeholder="?" value="${hp.score??""}" aria-label="What-if score"><span class="need">${needTxt}</span><button class="linkbtn" data-rmh="${cat}">Remove</button></div></td></tr>`;
+    } else {
+      h+=`<tr class="hypo"><td colspan="3"><button class="linkbtn add-hypo ext" data-addh="${cat}">+ Plan an upcoming ${cat==="Tests & Quizzes"?"test":"assignment"}</button></td></tr>`;
+    }
+  }
+  tb.innerHTML=h;
+  if(chartOpen){ const c=chartHTML(); const cell=document.getElementById("chart-cell"); cell.innerHTML=c.html; wireChart(cell,c); }
+  // wire
+  document.getElementById("spark").onclick=()=>{chartOpen=!chartOpen;render();};
+  const rs=document.getElementById("reset"); if(rs) rs.onclick=()=>{for(const k in whatIf) delete whatIf[k]; for(const k in hypos) if(hypos[k]) hypos[k].score=null; render();};
+  tb.querySelectorAll('input[id^="wi-"]').forEach(inp=>inp.addEventListener("input",()=>{const id=+inp.id.slice(3);const v=parseFloat(inp.value); if(isNaN(v)) delete whatIf[id]; else whatIf[id]=v; render();}));
+  for(const cat in hypos){ const hp=hypos[cat]; if(!hp) continue;
+    const n=document.getElementById("hn-"+cat), p=document.getElementById("hp-"+cat), s=document.getElementById("hs-"+cat);
+    n.oninput=()=>{hp.name=n.value;};
+    p.oninput=()=>{hp.pts=Math.max(1,parseFloat(p.value)||1);render();};
+    s.oninput=()=>{const v=parseFloat(s.value);hp.score=isNaN(v)?null:v;render();};
+  }
+  tb.querySelectorAll("[data-addh]").forEach(b=>b.onclick=()=>{hypos[b.dataset.addh]={name:"",pts:10,score:null};render();document.getElementById("hn-"+b.dataset.addh).focus();});
+  tb.querySelectorAll("[data-rmh]").forEach(b=>b.onclick=()=>{hypos[b.dataset.rmh]=null;render();});
+  if(focusId){ const f=document.getElementById(focusId); if(f){ f.focus(); if(f.type==="number"&&caret!=null){} } }
+}
+
+/* page switch */
+const PAGES={grades:"page-grades",mat:"page-mat",assign:"page-assign"};
+function show(which){ if(!PAGES[which]) which="grades";
+  for(const k in PAGES){ document.getElementById(PAGES[k]).hidden=k!==which; document.getElementById("tab-"+k).setAttribute("aria-pressed",k===which); }
+  try{localStorage.setItem("ov-demo-tab",which)}catch(e){} }
+for(const k in PAGES) document.getElementById("tab-"+k).onclick=()=>show(k);
+try{const s=localStorage.getItem("ov-demo-tab"); if(s) show(s);}catch(e){}
+if(location.hash==="#assignment") show("assign"); if(location.hash==="#materials") show("mat");
+
+/* ---------- materials ---------- */
+// neo-plan state for work the gradebook hasn't scored (demo values)
+const STATE={"Lab 6.1 Taxes":"turned","In Class Lab 6.3 - BankAccount":"turned","In-class Lab 6.2 - Static Review":"todo",
+  "Lab 7.1 MadLibs (optional)":"none","Lab 8.1 CheckMail":"missing","Lab 8.2 Happiness Detector":"ready","HW Quiz 7-8":"turned",
+  "Read Lesson 2":"turned","Read Lesson 3":"turned","Read Chapter 4":"turned","Read Lesson 5":"turned","Read Lesson 8":"turned","Read Lesson 14":"turned",
+  "Fix Javadoc errors and clean up code":"turned"};
+const F=(n,...items)=>({name:n,items});
+const pdf=t=>({k:"pdf",t}), pg=t=>({k:"pg",t}), a=t=>({k:"asg",t});
+const FOLDERS=[
+ F("Course Information",pdf("APCS First Day 2026.pdf"),pdf("Course Information.pdf"),pdf("Academic Integrity Policy.pdf"),a("Academic Integrity Policy"),a("Course Information Agreement"),a("Sign Up For College Board Class P2")),
+ F("Lesson 0 - Introduction to Programming",pdf("Lesson 0 - Introduction to Programming.pdf"),pdf("Lesson 0 Day 2 Agenda.pdf"),pg("Additional Resources For Introduction to Programming in Java"),a("Video 1 HW Checkpoint"),a("Video 1 HW Submission"),a("Video 2 HW Submission"),a("Video 3 HW Submission"),a("Worksheet 0.1 For Loops"),a("Lesson 0 Videos 1,2,3 HW Quiz"),a("Lesson 0 Quiz")),
+ F("Lesson 1 - Introduction to Object Oriented Programming (OOP)",pdf("Lesson 1 - Creating and Using Objects.pdf"),pdf("Lesson 1 Day 2 - Writing methods to draw house.pdf"),pg("How to run gpdraw using a Chromebook"),a("Lab 1.1 FirstHouse"),a("Lab 1.2 SecondHouse")),
+ F("Lesson 2 - Object Oriented Programming",pdf("Lesson 2 - Object Oriented Programming.pdf"),pdf("Javadoc Command Line Slides.pdf"),a("Read Lesson 2"),a("Lab 2.1 FinalHouse Checkpoint"),a("Lab 2.2 Final House"),a("Lab 2.3 CoolHouse"),a("HW Quiz 1.1-2.1")),
+ F("Lesson 3 - Primitive Data Types",pdf("Agenda 8 - 31 - 2026.pdf"),pdf("Lesson 3 - Part 1.pdf"),pdf("Lesson 3 - Part 2.pdf"),pdf("Lesson 3 - Part 3.pdf"),a("Read Lesson 3"),a("Worksheets 3.1 and 3.2"),a("Fix Javadoc errors and clean up code")),
+ F("Lesson 4 - Object Behavior",pdf("Lesson 4 Agenda.pdf"),a("Read Chapter 4"),a("Lab 4.1 Sphere"),a("HW Quiz 3-4"),a("Lesson 1-4 Practice Test"),a("Lesson 0-4 Checkpoint"),a("Lesson 0-4 Test")),
+ F("Lesson 5 - Designing and Using Classes",pdf("Agenda 9 - 8 - 2026.pdf"),pdf("Lesson 5 Slides.pdf"),a("Read Lesson 5"),a("Worksheet 5.1"),a("Worksheet 5.2"),a("Lab 5.2 Illusions")),
+ F("Lesson 6 - Libraries and APIs",pdf("Agenda Monday 9 - 15.pdf"),pdf("Lesson 6 Lecture Slides.pdf"),pdf("Static vs Instance Methods and Fields.pdf"),a("Lab 6.1 Taxes"),a("Worksheet 6.4 Random"),a("HW Quiz 5-6"),a("In Class Lab 6.3 - BankAccount"),a("In-class Lab 6.2 - Static Review")),
+ F("Lesson 7 - Simple I/O (printf and Scanner)",pdf("Lesson 7 Slides and Video.pdf"),a("Worksheets 7.1 and 7.2"),a("Worksheet 7.3 - Scanner & printf Review"),a("Lab 7.1 MadLibs (optional)")),
+ F("Lesson 8 - Control Structures",pdf("Effective Reading + Agenda 9 - 17.pdf"),a("Read Lesson 8"),a("Worksheets 8.1 and 8.2"),a("Lab 8.1 CheckMail"),a("Lab 8.2 Happiness Detector"),a("HW Quiz 7-8")),
+ F("Lesson 14 - DeMorgan's Laws",pdf("Lesson 14 - DeMorgan's Laws.pdf"),a("Read Lesson 14"),a("Lesson 14 DeMorgan's Laws Checkpoint")),
+];
+const byTitle=new Map(ITEMS.map(i=>[i.title,i]));
+function stateOf(t){ const g=byTitle.get(t); if(g&&g.earned!=null) return "graded"; return STATE[t]||"turned"; }
+const OPEN=new Set(["missing","ready","todo"]);
+const openF=new Set(["Lesson 8 - Control Structures"]);
+let onlyOpen=false;
+const shortDue=g=>{ if(!g) return ""; const d=g.due; return d.toLocaleDateString("en-US",{weekday:"short",month:"numeric",day:"numeric"}); };
+function marker(t){
+  const st=stateOf(t), g=byTitle.get(t);
+  if(st==="graded") return `<span class="num" style="color:var(--ink)">${g.earned} / ${g.pts}</span>`;
+  if(st==="turned") return `<span class="muted">Submitted</span>`;
+  if(st==="missing") return `<span class="pill bad">Missing</span><span class="st" title="Not done"><span class="circle"></span></span>`;
+  if(st==="ready") return `<span class="st done" title="Marked done in neo-plan"><span class="circle"></span></span><span class="muted">Done, not submitted</span>`;
+  if(st==="todo") return `<span class="st" title="Not done"><span class="circle"></span></span><span class="num muted">${shortDue(g)}</span>`;
+  return `<button class="linkbtn" data-madd="${esc(t)}">+ Add to neo-plan</button>`;
+}
+function folderSum(f){
+  const c={missing:0,ready:0,todo:0}; let e=0,p=0;
+  for(const it of f.items){ if(it.k!=="asg") continue; const st=stateOf(it.t); if(c[st]!=null) c[st]++; const g=byTitle.get(it.t); if(g&&g.earned!=null){e+=g.earned;p+=g.pts;} }
+  const parts=[]; if(c.missing) parts.push(`<span class="bad">${c.missing} missing</span>`); if(c.ready) parts.push(`${c.ready} to turn in`); if(c.todo) parts.push(`${c.todo} to do`);
+  return {html:parts.length?parts.join(" \u00B7 "):`All turned in`, open:c.missing+c.ready+c.todo, pct:p?e/p*100:null};
+}
+function renderMat(){
+  const box=document.getElementById("mat"); let h=""; let total=0;
+  for(const f of FOLDERS){
+    const sm=folderSum(f); total+=sm.open;
+    if(onlyOpen && !sm.open) continue;
+    const open=onlyOpen||openF.has(f.name);
+    h+=`<div class="mrow"><span class="ico fold" aria-hidden="true"></span><div><button class="ttl" data-fold="${esc(f.name)}" aria-expanded="${open}"><span class="chev">${open?"\u25BE":"\u25B8"}</span>${esc(f.name)}</button></div>
+      <div class="right ext"><span class="sum">${sm.html}</span><span class="scored" title="Points earned out of points graded in this folder">${sm.pct==null?"":fmt(sm.pct,1)}</span></div></div>`;
+    if(!open) continue;
+    for(const it of f.items){
+      const st=it.k==="asg"?stateOf(it.t):null;
+      if(onlyOpen && !OPEN.has(st)) continue;
+      const g=byTitle.get(it.t);
+      const ico=it.k==="pdf"?`<span class="ico pdf">PDF</span>`:it.k==="pg"?`<span class="ico pg">PG</span>`:`<span class="ico asg">A</span>`;
+      h+=`<div class="mrow child">${ico}<div><a href="#materials">${esc(it.t)}</a>${g?`<span class="sub">Due ${g.dueS}</span>`:""}</div><div class="right ext">${it.k==="asg"?marker(it.t):""}</div></div>`;
+    }
+  }
+  box.innerHTML=h||`<div class="mrow"><span></span><span class="muted">Nothing open. Everything is done or turned in.</span><span></span></div>`;
+  document.getElementById("open-count").innerHTML=total?`<span class="num">${total}</span> open in this course`:"";
+  box.querySelectorAll("[data-fold]").forEach(b=>b.onclick=()=>{ if(onlyOpen) return; const n=b.dataset.fold; openF.has(n)?openF.delete(n):openF.add(n); renderMat(); });
+  box.querySelectorAll("[data-mturn]").forEach(b=>b.onclick=()=>{ STATE[b.dataset.mturn]="turned"; renderMat(); });
+  box.querySelectorAll("[data-madd]").forEach(b=>b.onclick=()=>{ STATE[b.dataset.madd]="todo"; renderMat(); });
+}
+document.getElementById("only-open").onchange=e=>{onlyOpen=e.target.checked;renderMat();};
+document.getElementById("arch-sync").onclick=e=>{document.getElementById("arch-when").textContent="just now";};
+renderMat();
+
+/* ---------- assignment page ---------- */
+function impactOf(title,score){ const it=byTitle.get(title); return calc(ITEMS.map(i=>i===it?{...i,earned:score}:i)).course-BASE.course; }
+function alsoIn(folder,skip){
+  const f=FOLDERS.find(x=>x.name.startsWith(folder));
+  return `<div class="also ext"><h3>Also in ${esc(f.name)}</h3>${f.items.filter(i=>i.t!==skip).map(i=>`<div class="r"><a href="#assignment">${esc(i.t)}</a><span class="right">${i.k==="asg"?marker(i.t):`<span class="muted">${i.k==="pdf"?"In your archive":"Page"}</span>`}</span></div>`).join("")}</div>`;
+}
+let variant="open", submitted=false;
+function renderAsg(){
+  const el=document.getElementById("asg");
+  if(variant==="open"){
+    const z=impactOf("Lab 8.1 CheckMail",0), full=impactOf("Lab 8.1 CheckMail",10);
+    el.innerHTML=`<div class="alayout"><div style="display:grid;gap:12px;align-content:start">
+      <h2 class="host-title">Lab 8.1 CheckMail</h2>
+      <div class="host-sub">Due Wednesday, September 23, 2026 at 11:59 pm</div>
+      <div class="chip ext" role="status" id="as-chip"></div>
+      <p class="instr">Do <a href="https://apcs.tinocs.com/lesson/A8/Z-1.md" style="color:#0677BA">Lab 8.1 CheckMail</a></p>
+      ${alsoIn("Lesson 8","Lab 8.1 CheckMail")}
+    </div>
+    <aside class="aside">
+      <button class="hbtn" id="as-submit">Submit Assignment</button>
+      ${submitted?`<div class="hcard"><h4>Submission</h4><span>CheckMail.java</span><span style="color:var(--h-dim)">Sat Sep 26, 2026</span></div>`:""}
+      <div class="hcard"><h4>Grade</h4><span class="gv">\u2014 / 10</span></div>
+      <div class="wiside ext"><span>What if I get <input id="as-wi" type="number" min="0" max="10" step="0.5" value="7" aria-label="What-if score"> / 10</span><span>Course grade <b id="as-wi-out"></b></span></div>
+      <div class="hcard"><h4>Comments</h4><span style="color:var(--h-dim)">No comments</span></div>
+    </aside></div>`;
+    const inp=document.getElementById("as-wi"), out=document.getElementById("as-wi-out");
+    const upd=()=>{const v=Math.max(0,parseFloat(inp.value)||0); const d=impactOf("Lab 8.1 CheckMail",v); out.innerHTML=`${fmt(BASE.course+d)} <span class="imp ${d<0?"neg":"pos"}">${sgn(d)}</span>`;};
+    inp.oninput=upd; upd();
+    const chip=document.getElementById("as-chip");
+    const drawChip=()=>{
+      chip.innerHTML = submitted
+        ? `<span class="cls"><span class="dot"></span>AP CS A</span><span class="pill ok">Submitted</span><span class="sep"></span><span class="muted">Cleared in neo-plan</span><span class="sep"></span><span class="muted">Late by 3 days</span>`
+        : `<span class="cls"><span class="dot"></span>AP CS A</span><span class="pill bad">Missing</span><span class="sep"></span><span class="muted">A zero costs <span class="num" style="color:var(--bad)">${sgn(z)}</span></span><span class="sep"></span><span class="muted">Submit with Schoology's button</span><button class="linkbtn">Remove from neo-plan</button>`;
+    };
+    drawChip();
+    const sb=document.getElementById("as-submit");
+    sb.textContent=submitted?"Resubmit":"Submit Assignment";
+    sb.onclick=()=>{ submitted=true; STATE["Lab 8.1 CheckMail"]="turned"; renderMat(); renderAsg(); };
+  } else {
+    const t="Lesson 0-4 Test", g=byTitle.get(t), d=IMPACT.get(g.id);
+    const tests=ITEMS.filter(i=>i.cat===g.cat&&i.earned!=null).map(i=>i.earned/i.pts).sort((x,y)=>x-y);
+    const rank=tests.indexOf(g.earned/g.pts)+1;
+    const rankTxt=rank===1?"Lowest":rank===2?"2nd lowest":rank===3?"3rd lowest":`${rank}th lowest`;
+    el.innerHTML=`<div class="alayout"><div style="display:grid;gap:12px;align-content:start">
+      <h2 class="host-title">${t}</h2>
+      <div class="host-sub">Due Monday, September 14, 2026 at 10:05 am</div>
+      <div class="chip ext" role="status"><span class="cls"><span class="dot"></span>AP CS A</span><span class="muted">Graded</span><span class="sep"></span>
+        <span class="muted">Moved your course grade <span class="num" style="color:var(--bad)">${sgn(d)}</span></span><span class="sep"></span>
+        <span class="muted">${rankTxt} of ${tests.length} in ${g.cat}</span></div>
+      <p class="instr" style="color:var(--h-dim)">In-class test on Lessons 0 to 4.</p>
+      ${alsoIn("Lesson 4",t)}
+    </div>
+    <aside class="aside">
+      <div class="hcard"><h4>Grade</h4><span class="gv">47.44 / 50</span></div>
+      <div class="hcard"><h4>Comments</h4><span style="color:var(--h-dim)">No comments</span></div>
+    </aside></div>`;
+  }
+}
+document.getElementById("v-open").onclick=()=>{variant="open";submitted=false;STATE["Lab 8.1 CheckMail"]="missing";renderMat();document.getElementById("v-open").setAttribute("aria-pressed",true);document.getElementById("v-graded").setAttribute("aria-pressed",false);renderAsg();};
+document.getElementById("v-graded").onclick=()=>{variant="graded";document.getElementById("v-graded").setAttribute("aria-pressed",true);document.getElementById("v-open").setAttribute("aria-pressed",false);renderAsg();};
+renderAsg();
+
+function setOverlay(on){
+  document.querySelector(".wrap").classList.toggle("plain",!on);
+  document.querySelectorAll("[data-vt]").forEach(b=>{b.setAttribute("aria-pressed",on);b.lastElementChild.textContent=on?"Overlay":"Schoology only";});
+  try{localStorage.setItem("ov-demo-on",on?"1":"0")}catch(e){}
+}
+document.querySelectorAll("[data-vt]").forEach(b=>b.onclick=()=>setOverlay(b.getAttribute("aria-pressed")!=="true"));
+document.addEventListener("keydown",e=>{ if(e.altKey && e.code==="KeyS"){ e.preventDefault(); setOverlay(document.querySelector(".wrap").classList.contains("plain")); }});
+try{ if(localStorage.getItem("ov-demo-on")==="0") setOverlay(false);}catch(e){}
+render();
+</script>

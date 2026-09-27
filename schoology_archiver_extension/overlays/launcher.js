@@ -16,19 +16,19 @@ const CSS = `
   position: fixed; right: 16px; bottom: 16px; z-index: 2147483000;
   display: inline-flex; align-items: center; gap: 8px;
   height: 32px; padding: 0 12px; background: var(--surface);
-  border: 1px solid var(--ink-dim); border-radius: var(--radius);
+  border: 1px solid var(--dim); border-radius: var(--radius);
   font-weight: 600;
 }
 .open:hover { border-color: var(--ink); }
-.open .mono { font-weight: 400; color: var(--ink-dim); }
+.open .mono { font-weight: 400; color: var(--dim); }
 .dim-page {
   position: fixed; inset: 0; z-index: 2147483001;
-  background: rgba(27, 28, 30, 0.4);
+  background: rgba(31, 36, 41, 0.4);
 }
 .card {
   position: fixed; inset: ${CARD_MARGIN}px; z-index: 2147483002;
   display: flex; flex-direction: column;
-  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: var(--radius);
   overflow: hidden;
 }
 .bar {
@@ -37,11 +37,11 @@ const CSS = `
   border-bottom: 1px solid var(--line);
 }
 .bar .brand { font-weight: 600; margin-right: auto; }
-.bar a { color: var(--ink-dim); text-decoration: underline; text-underline-offset: 2px; }
+.bar a { color: var(--dim); text-decoration: underline; text-underline-offset: 2px; }
 .bar a:hover, .close:hover { color: var(--ink); }
-.close { font-size: 18px; line-height: 18px; color: var(--ink-dim); min-width: 24px; height: 24px; }
-iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
-.err { padding: 16px; color: var(--time); }
+.close { font-size: 18px; line-height: 18px; color: var(--dim); min-width: 24px; height: 24px; }
+iframe { flex: 1; width: 100%; border: 0; background: var(--sunk); }
+.err { padding: 16px; color: var(--bad); }
 @media (max-width: 600px) { .card { inset: 8px; } }
 `;
 

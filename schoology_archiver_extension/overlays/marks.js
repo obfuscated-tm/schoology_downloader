@@ -1,78 +1,77 @@
-// Row markers, shared by /home and a course's Materials page: one small
-// marker at the end of each assignment row, saying what neo-plan has for it:
-//   ○ in neo-plan, not done    ✓ done, not turned in
-//   Turned in / Finished / Submitted (Schoology cleared it)
-//   Missing, in --time         × takes it off neo-plan
-//   + not in neo-plan (adds it)    Removed · Add back (brings it back)
+// Row markers for the Upcoming / To Do columns, on /home and on a course's
+// pages, and for the list on /home/assignments: the same one marker the Materials page gives an assignment
+// (overlays/marker.js, docs/OVERLAY-UI.md §2), on the title's line at the
+// right of the row:
+//   Submitted / Turned in / Finished     Missing pill + ○
+//   ● Done, not submitted                ○ (not done; the row shows the due)
+//   + Add to neo-plan                    Removed · Add back
+// Nothing from the gradebook here (these lists span courses), and no due date:
+// Schoology's row already shows it.
 // One batched items request for the rows on screen; rows Schoology loads
 // later are picked up by a MutationObserver. Each marker is our own element in
-// its own shadow root, appended inside the row; Schoology's nodes and their
+// its own shadow root, placed inside the row; Schoology's nodes and their
 // attributes are never changed.
 
-import { np, createHost, el, onClick, debounce, failText } from './ui.js';
-import { clearedWord } from '../panel/today-format.js';
+import { np, createHost, el, debounce, failText, keepEvents } from './ui.js';
+import { rowState } from './matstate.js';
+import { MARK_CSS, markerFor } from './marker.js';
 
-const CSS = `
-:host { display: inline-block; margin-left: 8px; vertical-align: baseline; }
-.mark {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 0 4px; background: var(--surface);
-  border: 1px solid var(--line); border-radius: var(--radius);
-  font-family: var(--mono); font-size: 12px; line-height: 16px; color: var(--ink-dim);
-}
-.add, .back { color: var(--ink); min-width: 16px; }
-.back { text-decoration: underline; text-underline-offset: 2px; }
-.rm { color: var(--ink-dim); min-width: 16px; }
-.rm:hover { color: var(--ink); }
-.time { color: var(--time); }
+// /home's rows are flex rows (title block, then Schoology's status icon), as
+// is the title cell of a /home/assignments row: the marker is the last item. A course page's rows are plain blocks: the marker
+// floats right inside the row's content. Either way it's lined up with the
+// title's first line (--line-h and margin-top, measured from the page).
+const CSS = MARK_CSS + `
+:host { font-size: 12px; line-height: 18px; color: var(--dim); white-space: nowrap; }
+.right { display: inline-flex; align-items: center; gap: 8px; height: var(--line-h, 18px); }
 `;
 const TAG = 'np-mark';
 
 /**
- * rowsIn(doc) → [{ el, schoology_id, title, due?, realm?, section_id? }].
- * `el` is where the marker is appended.
+ * rowsIn(doc) → [{ el, schoology_id, title, due?, realm?, section_id?, titleEl?, graded? }].
+ * `el` is the row the marker goes in; `titleEl`, when the title isn't a link
+ * to the assignment, what to line it up with.
  */
 export function startMarks({ rowsIn, doc = document, loc = location, call = np }) {
   const known = new Map(); // schoology_id → Item | null (null: not in neo-plan)
   const marks = new Map(); // schoology_id → [{ row, host, root, busy }]
   const errors = new Map(); // schoology_id → text of the last failed change
   const asked = new Set();
+  const ours = new WeakSet(); // the markers made here, not copies of them
   let failed = false;
 
-  function button(cls, text, label, fn, busy) {
-    const b = el('button', cls, text);
-    b.setAttribute('aria-label', label);
-    b.title = label;
-    b.disabled = !!busy;
-    onClick(b, fn);
-    return b;
+  /** The row's title (its own, or its assignment link), whose first line the marker lines up with. */
+  const titleOf = (row) => row.titleEl || [...row.el.querySelectorAll('a[href]')].find((a) => /\/assignment\/\d+/.test(a.getAttribute('href'))) || null;
+
+  function align(m) {
+    const a = titleOf(m.row);
+    const line = a?.getClientRects()[0];
+    if (!line || !m.host.getClientRects().length) return;
+    m.host.style.setProperty('--line-h', `${Math.round(line.height)}px`);
+    m.host.style.marginTop = '';
+    const off = line.top - m.host.getBoundingClientRect().top;
+    if (Math.abs(off) >= 1) m.host.style.marginTop = `${Math.round(off)}px`;
   }
 
   function drawMark(m) {
     const row = m.row;
     const it = known.get(row.schoology_id);
-    if (it === undefined) { m.root.replaceChildren(m.root.firstChild); m.host.hidden = true; return; }
-    m.host.hidden = false;
-    const box = el('span', 'mark');
-    let label;
-    if (it === null) {
-      box.append(button('add', '+', 'Add to neo-plan', () => add(row), m.busy));
-      label = 'Not in neo-plan';
-    } else if (it.removed) {
-      box.append(el('span', null, 'Removed'), button('back', 'Add back', 'Add back to neo-plan', () => restore(row), m.busy));
-      label = 'Removed from neo-plan';
-    } else {
-      const done = it.cleared ? clearedWord(it) : it.work === 'ready' ? 'Done' : 'Not done';
-      box.append(el('span', null, it.cleared ? done : it.work === 'ready' ? '✓' : '○'));
-      if (it.missing) box.append(el('span', 'time', 'Missing'));
-      box.append(button('rm', '×', 'Remove from neo-plan', () => remove(row), m.busy));
-      label = `neo-plan: ${done}${it.missing ? ', Missing' : ''}`;
-    }
+    // A graded row shows its grade itself: nothing to add (not "Not studied").
+    const s = row.graded ? { kind: 'unknown' } : rowState(undefined, it);
+    // item and rowDue left out: no due date after the circle (the row has it).
+    const { kids, label } = markerFor(s, {
+      busy: m.busy,
+      onAdd: () => add(row),
+      onRestore: () => restore(row),
+    });
     const err = errors.get(row.schoology_id);
-    if (err) box.append(el('span', 'time', err));
-    box.title = label;
-    box.setAttribute('aria-label', label);
+    if (err) kids.push(el('span', 'bad', err));
+    m.host.hidden = !kids.length;
+    m.host.title = label;
+    if (label) m.host.setAttribute('aria-label', label); else m.host.removeAttribute('aria-label');
+    const box = el('span', 'right');
+    box.append(...kids);
     m.root.replaceChildren(m.root.firstChild, box); // keep the <style>
+    align(m);
   }
 
   function drawAll() {
@@ -103,18 +102,38 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
       source_url: `${loc.origin}/assignment/${row.schoology_id}`,
     },
   }));
-  const remove = (row) => change(row, () => call('remove', { id: known.get(row.schoology_id)?.id }));
   const restore = (row) => change(row, () => call('restore', { id: known.get(row.schoology_id)?.id }));
+
+  /** Where the marker goes in this row, and how it sits there. */
+  // Inline, not :host rules: a page's own "* { margin: 0 }" outranks :host.
+  const FLEX = { flex: 'none', alignSelf: 'flex-start', marginLeft: 'auto', paddingLeft: '8px', paddingRight: '2px' };
+  const BLOCK = { float: 'right', marginLeft: '8px' };
+  function place(host, rowEl) {
+    const flex = /flex/.test(getComputedStyle(rowEl).display);
+    Object.assign(host.style, flex ? FLEX : BLOCK);
+    // The popup's body has no padding of its own: keep the words off its border.
+    if (rowEl.closest('.popups-body')) host.style.paddingRight = '12px';
+    if (flex) { rowEl.append(host); return; }
+    const box = rowEl.querySelector(':scope > .upcoming-item-content') || rowEl;
+    box.insertBefore(host, box.firstChild);
+  }
 
   async function scan() {
     const rows = rowsIn(doc);
     for (const row of rows) {
       const list = (marks.get(row.schoology_id) || []).filter((x) => x.host.isConnected);
       marks.set(row.schoology_id, list);
-      if ([...row.el.children].some((c) => c.localName === TAG)) continue;
+      // A marker Schoology copied along with the row (the "N more overdue"
+      // popup clones rows) comes without its shadow root: an empty shell.
+      // Take the shell out and give the row a marker of its own.
+      const tags = [...row.el.querySelectorAll(TAG)];
+      if (tags.some((c) => ours.has(c))) continue;
+      for (const c of tags) c.remove();
       const { host, root } = createHost(TAG, CSS);
+      ours.add(host);
+      keepEvents(host);
       host.hidden = true;
-      row.el.append(host);
+      place(host, row.el);
       const x = { row, host, root, busy: false };
       list.push(x);
       drawMark(x);
@@ -139,6 +158,7 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
     onChange();
   });
   observer.observe(doc.body, { childList: true, subtree: true });
+  try { window.addEventListener('resize', debounce(drawAll, 100)); } catch { /* tests */ }
   const ready = scan();
   return { ready, scan, known, marks, observer, stop: () => observer.disconnect() };
 }

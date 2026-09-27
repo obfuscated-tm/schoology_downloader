@@ -1,0 +1,59 @@
+<!doctype html>
+<!-- A stand-in for /course/{id}/student_grades, built from fixtures/apcs-grades.md
+     with the markup docs/schoology-endpoints.md and Schoology Plus rely on, to
+     look at overlays/grades.js outside Schoology. Serve schoology_archiver_extension/
+     (python3 -m http.server) and open /test/grades-page.html. ?noweights drops the
+     (N%) so the weight boxes show. -->
+<html><head><meta charset="utf-8"><title>Grades stand-in</title>
+<style>
+body { font: 13px Arial, sans-serif; color: #333; background: #fff; margin: 24px; }
+table { border-collapse: collapse; width: 820px; }
+th, td { padding: 7px 8px; border-bottom: 1px solid #e3e3e3; text-align: left; font-weight: normal; vertical-align: middle; }
+tr.course-row th, tr.course-row td, tr.period-row th, tr.period-row td { font-weight: bold; background: #fafafa; }
+tr.category-row th, tr.category-row td { background: #f1f1f1; font-weight: bold; }
+tr.item-row th { padding-left: 28px; }
+.due-date { display: block; color: #777; font-size: 11px; }
+.grade-column { white-space: nowrap; }
+.percentage-contrib { color: #777; margin-left: 4px; }
+.visually-hidden { position: absolute; clip: rect(0 0 0 0); width: 1px; height: 1px; overflow: hidden; }
+.hidden { display: none; }
+</style></head>
+<body><h2>AP Comp Sci A: McLeodT p2 T1</h2>
+<div class="gradebook-course"><div class="gradebook-course-grades"><table><tbody id="gb"></tbody></table></div></div>
+<script type="module">
+const WEIGHTS = new URLSearchParams(location.search).has('noweights') ? {} : { 'Labs & Homework': 25, 'Tests & Quizzes': 75 };
+const md = await (await fetch('./fixtures/apcs-grades.md')).text();
+const tb = document.getElementById('gb');
+let n = 0, period = null, cat = null, hidePeriod = false;
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+for (const line of md.split('\n')) {
+  const m = line.match(/^\| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$/);
+  if (!m || m[1] === 'Item' || m[1].startsWith('---')) continue;
+  const raw = m[1], title = raw.replace(/^↳ /, '').replace(/^\*\*(.*)\*\*$/, '$1').trim();
+  const level = raw.startsWith('↳') ? 'category' : !raw.startsWith('**') ? 'item' : n === 0 ? 'course' : 'period';
+  const id = level === 'item' ? `I-${9000 + n}` : `${level[0]}-${n}`;
+  const parent = level === 'category' ? period : level === 'item' ? cat : level === 'period' ? 'c-0' : '';
+  if (level === 'period') { period = id; hidePeriod = /no grading period/.test(title); }
+  if (level === 'category') cat = id;
+  const g = m[3].trim(), sc = g.match(/^(.*?)(\d+(?:\.\d+)?) \/ (\d+(?:\.\d+)?)$/);
+  const gradeHtml = sc ? `<span class="awarded-grade"><span class="rounded-grade">${sc[2]}</span></span><span class="max-grade"> / ${sc[3]}</span>`
+    : level === 'item' ? '<span class="no-grade">—</span>' : `<span class="awarded-grade">${esc(g)}</span>`;
+  const contrib = level === 'category' && WEIGHTS[title] ? `<span class="percentage-contrib">(${WEIGHTS[title]}%)</span>` : '';
+  const due = m[2].trim() ? `<span class="due-date">${m[2].trim()}</span>` : '';
+  const tr = document.createElement('tr');
+  tr.className = `report-row ${level}-row${hidePeriod && level !== 'period' ? ' hidden' : ''}`;
+  tr.dataset.id = id; if (parent) tr.dataset.parentId = parent;
+  tr.innerHTML = `<th scope="row" class="title-column"><div class="td-content-wrapper"><span class="title">${esc(title)}${level === 'category' ? '<span class="visually-hidden">Category</span>' : ''}</span>${contrib}${due}</div></th>`
+    + `<td class="grade-column"><div class="td-content-wrapper">${gradeHtml}</div></td><td class="comment-column"><div class="td-content-wrapper"><span class="visually-hidden">No comment</span></div></td>`;
+  tb.append(tr);
+  n++;
+}
+// Schoology collapses a category when its row is clicked.
+tb.addEventListener('click', (e) => {
+  const tr = e.target.closest('tr.category-row'); if (!tr) return;
+  for (const r of tb.querySelectorAll(`tr[data-parent-id="${tr.dataset.id}"]`)) r.classList.toggle('hidden');
+});
+globalThis.__npNoAutoStart = true;
+const { start } = await import('../overlays/grades.js');
+window.overlay = await start({ loc: { pathname: '/course/8465375857/student_grades' } });
+</script></body></html>

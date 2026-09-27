@@ -74,18 +74,21 @@ export function startToIso(v) {
 }
 
 /**
- * The submission rows under `root` (a parsed ajax doc, or the live /home page).
- * Each: { el, schoology_id, realm, title, due }. `el` is the row element, for
- * the overlay to sit beside; the sync drops it.
+ * The submission rows under `root` (a parsed ajax doc, the live /home page, or
+ * a course page's Upcoming column). Each: { el, schoology_id, realm, title,
+ * due }. `el` is the row element, for the overlay to sit beside; the sync
+ * drops it. An id is listed once, unless `everyRow`: the live page can show
+ * one assignment in more than one list (and in the "N more overdue" popup),
+ * and the overlay marks each of them.
  */
-export function homeRowsIn(root) {
+export function homeRowsIn(root, { everyRow = false } = {}) {
   const out = [];
   const seen = new Set();
   for (const row of root.querySelectorAll('.upcoming-event')) {
     const a = [...row.querySelectorAll('a[href]')].find((x) => ASSIGNMENT_RE.test(x.getAttribute('href')));
     if (!a) continue;
     const id = a.getAttribute('href').match(ASSIGNMENT_RE)[1];
-    if (seen.has(id)) continue;
+    if (!everyRow && seen.has(id)) continue;
     seen.add(id);
     const startEl = row.hasAttribute('data-start') ? row : row.querySelector('[data-start]');
     const due = startToIso(startEl?.getAttribute('data-start'));
@@ -97,11 +100,13 @@ export function homeRowsIn(root) {
 
 /**
  * The assignment rows of a course's Materials page (table#folder-contents-table,
- * as reader/parse/materials.js reads it). Each: { el, schoology_id,
+ * as reader/parse/materials.js reads it). Each: { el, tr, schoology_id,
  * section_id, title, due? }. `el` is the row's title element, for the overlay
- * to sit after. Newer quizzes (/assessments/) are not assignments and are left out.
+ * to sit after; `tr` the whole row. A folder Schoology opened in place (its ›)
+ * shows its rows in a table inside the folder's row: those are left out
+ * unless `nested`. Newer quizzes (/assessments/) are not assignments and are left out.
  */
-export function materialRowsIn(root, url = '') {
+export function materialRowsIn(root, url = '', { nested = false } = {}) {
   let section = null;
   try { section = (new URL(url, 'https://x.schoology.com').pathname.match(COURSE_RE) || [])[1] || null; } catch { /* no section */ }
   const out = [];
@@ -109,18 +114,137 @@ export function materialRowsIn(root, url = '') {
   const table = root.querySelector('table#folder-contents-table');
   if (!table) return out;
   for (const tr of table.querySelectorAll('tr.dr')) {
-    const a = tr.querySelector('.item-title a[href]');
+    if (tr.classList.contains('material-row-folder')) continue; // a folder opened in place holds rows of its own
+    if (!nested && tr.closest('table') !== table) continue;
+    const a = ownLink(tr, '.item-title a[href]');
     const m = (a?.getAttribute('href') || '').match(ASSIGNMENT_RE);
     if (!m || seen.has(m[1])) continue;
     seen.add(m[1]);
-    const due = parseDueText(cleanText(tr.querySelector('.item-body')) || '');
-    out.push({ el: a.closest('.item-title') || a.parentElement, schoology_id: m[1], section_id: section, title: cleanText(a), ...(due ? { due } : {}) });
+    // "Due Monday, August 31, 2026 at 11:59 pm" is in .item-subtitle on the live
+    // page; older markup had it in .item-body.
+    const due = parseDueText(cleanText(tr.querySelector('.item-subtitle')) || '') || parseDueText(cleanText(tr.querySelector('.item-body')) || '');
+    out.push({ el: a.closest('.item-title') || a.parentElement, tr, schoology_id: m[1], section_id: section, title: cleanText(a), ...(due ? { due } : {}) });
+  }
+  return out;
+}
+
+/** The first `sel` in this row itself, not in a folder opened in place inside it. */
+function ownLink(tr, sel) {
+  return [...tr.querySelectorAll(sel)].find((a) => a.closest('tr') === tr) || null;
+}
+
+/** The f= of a folder link (/course/{id}/materials?f={folder}), or null. */
+export function folderIdOf(href) {
+  try { return new URL(href, 'https://x.schoology.com').searchParams.get('f') || null; } catch { return null; }
+}
+
+/**
+ * The folder rows of a Materials page or folder (the same table, with the
+ * selectors reader/parse/materials.js uses). Each: { tr, el, folder_id, title }.
+ * `el` is the folder's title element, for the overlay to sit in. Folders
+ * inside a folder opened in place are left out unless `nested`.
+ */
+export function folderRowsIn(root, { nested = false } = {}) {
+  const out = [];
+  const table = root.querySelector('table#folder-contents-table');
+  if (!table) return out;
+  for (const tr of table.querySelectorAll('tr.material-row-folder')) {
+    if (!nested && tr.closest('table') !== table) continue;
+    const a = ownLink(tr, '.folder-title a[href]');
+    const id = folderIdOf(a?.getAttribute('href'));
+    if (!id) continue;
+    out.push({ tr, el: a.closest('.folder-title') || a.parentElement, folder_id: id, title: cleanText(a) });
+  }
+  return out;
+}
+
+/**
+ * Every row of the table, those of folders opened in place included:
+ * { tr, kind: 'folder' | 'assignment' | 'other', id }. `id` is the folder's
+ * f= or the assignment's id (null for the rest).
+ */
+export function materialTableRows(root) {
+  const table = root.querySelector('table#folder-contents-table');
+  if (!table) return [];
+  const out = [];
+  for (const tr of table.querySelectorAll('tr')) {
+    if (!/\b(dr|material-row-folder)\b/.test(tr.className || '')) continue;
+    if (tr.classList.contains('material-row-folder')) {
+      out.push({ tr, kind: 'folder', id: folderIdOf(ownLink(tr, '.folder-title a[href]')?.getAttribute('href')) });
+      continue;
+    }
+    const m = (ownLink(tr, '.item-title a[href]')?.getAttribute('href') || '').match(ASSIGNMENT_RE);
+    out.push({ tr, kind: m ? 'assignment' : 'other', id: m ? m[1] : null });
   }
   return out;
 }
 
 export function parseHomeList(doc) {
   return homeRowsIn(doc).map(({ el, ...r }) => r);
+}
+
+// ── /home/assignments: the Upcoming / Recent / Missing list ──────────────
+// A newer view: each row is a clickable <div> with no link, labelled
+// "Assignment: {title} for {course} with category {category}". Its data comes
+// from /v2/events/{upcoming,recent,overdue} (JSON-LD: the assignments, their
+// sections and courses, all in @extra), which is where the ids are.
+
+export const EVENT_LISTS = ['upcoming', 'recent', 'overdue'];
+
+const ASSESSMENT_URL_RE = /\/course\/\d+\/assessments\/(\d+)(?:[/?#]|$)/;
+const lastId = (u) => (String(u || '').match(/(\d+)\/?$/) || [])[1] || null;
+
+/**
+ * /v2/events/{list} JSON → [{ schoology_id, title, course, section_id, due, graded }].
+ * What links to /assignment/{id}, and newer quizzes, which link to
+ * /course/{c}/assessments/{id}: the same id the To Do column links as
+ * /assignment/{id} (seen 2026-09-26). `course` is the course's title, as the
+ * row says it.
+ */
+export function parseEventsJson(textOrObj) {
+  const j = asJson(textOrObj);
+  const extra = Array.isArray(j?.['@extra']) ? j['@extra'] : [];
+  const byId = new Map(extra.map((e) => [e?.['@id'], e]));
+  const out = [];
+  const seen = new Set();
+  for (const e of extra) {
+    const m = String(e?.url || '').match(ASSIGNMENT_RE) || String(e?.url || '').match(ASSESSMENT_URL_RE);
+    if (!m || seen.has(m[1])) continue;
+    seen.add(m[1]);
+    const sectionRef = e['@links']?.parent?.['@id'] || null;
+    const section = byId.get(sectionRef);
+    const course = byId.get(section?.['@links']?.course?.['@id']); // an assignment's section links its course as `course`
+    out.push({
+      schoology_id: m[1],
+      title: squash(e.title),
+      course: squash(course?.title),
+      section_id: lastId(sectionRef),
+      due: e.dueDateInUTCISO || null,
+      graded: e.studentGrade?.grade != null, // the row shows the grade itself
+    });
+  }
+  return out;
+}
+
+const CARD = '.mfe-sgy-assignments-detail-view-assignment-details';
+
+/**
+ * The rows of the /home/assignments list: [{ el, titleEl, title, course }].
+ * `el` is the flex cell holding the title (the overlay sits at its end),
+ * `titleEl` the title itself.
+ */
+export function assignmentCardsIn(root) {
+  const out = [];
+  for (const card of root.querySelectorAll(CARD)) {
+    const titleEl = card.querySelector('.mfe-sgy-assignments-detail-view-assignment-title-text');
+    const title = squash(titleEl?.getAttribute('title') || titleEl?.textContent);
+    if (!title) continue;
+    const label = squash(card.getAttribute('aria-label'));
+    const after = label.slice(label.indexOf(`${title} for `) + title.length + 5);
+    const course = label.includes(`${title} for `) ? after.replace(/\s+with category\b.*$/, '').trim() : '';
+    out.push({ el: titleEl.parentElement, titleEl, title, course });
+  }
+  return out;
 }
 
 // ── Upcoming events: /home/upcoming_ajax ─────────────────────────────────

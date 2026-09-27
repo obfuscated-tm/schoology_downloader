@@ -192,6 +192,25 @@ function kill() {
   archiver.stop();
 }
 
+// ── "Sync now" on a Materials page ──────────────────────────────────────────
+// The service worker leaves { host, courseId, at } and opens this panel. The
+// panel in the window showing that course takes it: without a click, it can
+// only start when the archive folder is already allowed.
+const ARCHIVE_REQUEST = 'archiveRequest';
+const REQUEST_MS = 2 * 60_000;
+
+async function takeRequest() {
+  if (isSetupTab || archiver) return;
+  const req = (await chrome.storage.session.get(ARCHIVE_REQUEST))[ARCHIVE_REQUEST];
+  if (!req || Date.now() - req.at > REQUEST_MS) return;
+  await detectCourse();
+  if ($('course').value !== req.courseId || $('host').value !== req.host) return; // another window's
+  await chrome.storage.session.remove(ARCHIVE_REQUEST);
+  const perm = folder ? await folder.queryPermission({ mode: 'readwrite' }).catch(() => null) : null;
+  if (perm === 'granted') start();
+  else $('folderHint').textContent = 'Click Archive to sync this course.';
+}
+
 // ── Wiring ────────────────────────────────────────────────────────────────
 $('start').addEventListener('click', start);
 $('pickFolder').addEventListener('click', choose);
@@ -201,6 +220,7 @@ chrome.runtime.onMessage.addListener((msg) => { if (msg?.type === 'kill') kill()
 $('course').addEventListener('input', () => { $('start').disabled = !$('course').value; });
 chrome.tabs.onActivated.addListener(detectCourse);
 chrome.tabs.onUpdated.addListener((_id, info) => { if (info.url || info.title || info.status === 'complete') detectCourse(); });
+chrome.storage.session.onChanged.addListener((ch) => { if (ch[ARCHIVE_REQUEST]?.newValue) takeRequest(); });
 
 (async function init() {
   const saved = (await chrome.storage.local.get('options')).options || {};
@@ -213,4 +233,5 @@ chrome.tabs.onUpdated.addListener((_id, info) => { if (info.url || info.title ||
   await showFolder();
   await detectCourse();
   await renderHistory();
+  await takeRequest();
 })();

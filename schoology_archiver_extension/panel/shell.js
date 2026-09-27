@@ -32,12 +32,20 @@ async function init() {
   let saved = null;
   try { saved = (await chrome.storage.local.get(VIEW_KEY))[VIEW_KEY]; } catch { /* default below */ }
   let initial = saved === 'today' || saved === 'archive' ? saved : null;
+  // Opened by "Sync now" on a Materials page: the archive is what's wanted.
+  if (await archiveRequested()) initial = 'archive';
   if (!initial) {
     const s = await np('settings');
     initial = s.ok && s.data?.hasToken ? 'today' : 'archive';
   }
   setView(initial, { remember: false });
   wire();
+}
+
+// A Materials page's "Sync now" (archive.js takes the request itself).
+const ARCHIVE_REQUEST = 'archiveRequest';
+async function archiveRequested() {
+  try { return !!(await chrome.storage.session.get(ARCHIVE_REQUEST))[ARCHIVE_REQUEST]; } catch { return false; }
 }
 
 function setView(v, { remember = true } = {}) {
@@ -140,6 +148,11 @@ async function openUrl(url) {
 
 // ── Wiring ───────────────────────────────────────────────────────────────
 function wire() {
+  chrome.storage.session.onChanged.addListener((ch) => {
+    if (!ch[ARCHIVE_REQUEST]?.newValue) return;
+    if (settingsOpen()) closeSettings();
+    setView('archive', { remember: false });
+  });
   $('npViewBtn').addEventListener('click', () => menu($('npViewMenu').hidden));
   for (const b of $('npViewMenu').querySelectorAll('[data-view]')) {
     b.addEventListener('click', () => {

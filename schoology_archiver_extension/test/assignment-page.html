@@ -1,0 +1,157 @@
+<!doctype html>
+<!-- A stand-in for /assignment/{id}/info, to look at overlays/assignment.js
+     outside Schoology: the chip, the sidebar what-if and "Also in <folder>".
+     The markup follows fuhsd.schoology.com as seen on 2026-09-26: the folder
+     in the breadcrumb (.folder-title a?f=), an empty p.due-date and
+     .grading-grade in the title bar, .assignment-details > p.due-date,
+     .info-body, .attachments, .comment-container, #right-column-inner. Serve
+     schoology_archiver_extension/ (python3 -m http.server) and open
+     /test/assignment-page.html. neo-plan, the gradebook, the folders and the
+     archive are faked below.
+       ?a=802  Lab 8.1 CheckMail: missing (default)   ?a=803  done, not submitted
+       ?a=804  HW Quiz 7-8: graded                    ?a=806  not in neo-plan
+       ?a=805  removed                                ?notoken  no neo-plan token
+     "Submit" plays Schoology's submit dialog finishing (late). -->
+<html><head><meta charset="utf-8"><title>Assignment stand-in</title>
+<style>
+body { font: 13px Arial, sans-serif; color: #333; background: #fff; margin: 24px; max-width: 960px; }
+.content-top-upper a { color: #0677BA; text-decoration: none; font-size: 12px; display: block; }
+.folder-title a { font-size: 14px; }
+.info-container { display: flex; justify-content: flex-end; gap: 8px; }
+.posted-time { color: #777; }
+.comment-container h3 { font-size: 14px; }
+#main-inner { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 24px; }
+h1.page-title { margin: 6px 0 4px; font-size: 22px; }
+.due-date { color: #777; margin: 0; }
+.info-body { margin-top: 12px; font-size: 14px; line-height: 1.5; }
+.info-body a { color: #0677BA; }
+#right-column-inner { display: flex; flex-direction: column; gap: 12px; }
+.dropbox-submit { display: block; border: 1px solid #c9c9c9; background: linear-gradient(#fff, #f1f1f1); border-radius: 3px; padding: 7px 12px; font-weight: bold; text-align: center; color: #333; text-decoration: none; cursor: pointer; }
+.submission-status { display: block; border: 1px solid #e3e3e3; border-radius: 3px; padding: 10px 12px; }
+.submission-status.late { color: #b8430f; }
+.hcard { border: 1px solid #e3e3e3; border-radius: 3px; padding: 10px 12px; display: grid; gap: 4px; }
+.hcard h3 { margin: 0; font-size: 12px; color: #777; font-weight: normal; text-transform: uppercase; letter-spacing: .04em; }
+.hcard .gv { font-size: 18px; font-weight: bold; }
+@media (max-width: 760px) { #main-inner { grid-template-columns: 1fr; } }
+</style></head>
+<body>
+<div id="main-inner">
+  <div id="center-col">
+    <div id="center-top">
+      <div class="content-top-upper"><a href="/course/8465375857">AP Comp Sci A: McLeodT p2 T1</a><div class="folder-title"><a href="/course/8465375857/materials?f=8">Lesson 8 - Control Structures</a></div></div>
+      <h1 class="page-title" id="title"></h1>
+      <div class="content-top"><div class="info-container"><div class="info-text"><p class="due-date"></p></div><div class="grading-grade">Grade: <span id="gv"></span></div></div></div>
+    </div>
+    <div id="center-inner">
+      <div class="assignment-details"><p class="due-date" id="due"></p></div>
+      <div class="info-body" id="body"></div>
+      <p class="posted-time">Posted Wed Sep 23, 2026 at 2:56 pm</p>
+      <div class="attachments"><a href="#">Lab 8.1 handout.pdf</a></div>
+      <div class="comment-container"><h3>Comments</h3><span style="color:#777">There are no comments</span></div>
+    </div>
+  </div>
+  <div id="right-column"><div id="right-column-inner">
+    <a class="dropbox-submit" id="submit">Submit Assignment</a>
+  </div></div>
+</div>
+<script type="module">
+const SECTION = '8465375857';
+const q = new URLSearchParams(location.search);
+const ID = q.get('a') || '802';
+const F = (id, name, ...items) => ({ id, name, items });
+const a = (id, t, due) => ({ k: 'assignment', id, t, due });
+const d = (id, t) => ({ k: 'document', id, t });
+const f = (id) => ({ k: 'folder', id });
+const FOLDERS = {
+  root: F('root', 'Materials', f('info'), f('7'), f('8'), d('d0', 'Syllabus.pdf')),
+  info: F('info', 'Course Information', d('d1', 'Course Information.pdf'), a('101', 'Academic Integrity Policy', 'August 14, 2026 at 11:59 pm')),
+  7: F('7', 'Lesson 7 - Simple I/O (printf and Scanner)', d('d7', 'Lesson 7 Slides and Video.pdf'), a('701', 'Worksheets 7.1 and 7.2', 'September 18, 2026 at 11:59 pm')),
+  8: F('8', 'Lesson 8 - Control Structures', d('d8', 'Effective Reading + Agenda 9 - 17.pdf'), a('801', 'Read Lesson 8', 'September 21, 2026 at 11:59 pm'), a('802', 'Lab 8.1 CheckMail', 'September 23, 2026 at 11:59 pm'), a('803', 'Lab 8.2 Happiness Detector', 'September 30, 2026 at 11:59 pm'), a('804', 'HW Quiz 7-8', 'September 24, 2026 at 11:59 pm'), a('806', 'Lab 8.4 Extra', 'October 3, 2026 at 11:59 pm'), d('d9', 'Lesson 8 Slides.pdf'), f('8x')),
+  '8x': F('8x', 'Lesson 8 extras', a('805', 'Lab 8.3 Extra Credit', 'October 2, 2026 at 11:59 pm')),
+};
+// Gradebook: Labs & Homework 25%, Tests & Quizzes 75%.
+const GB = [
+  ['Labs & Homework', 25, [['101', 'Academic Integrity Policy', '5 / 5'], ['701', 'Worksheets 7.1 and 7.2', '19.05 / 20'], ['801', 'Read Lesson 8', '2 / 2'], ['802', 'Lab 8.1 CheckMail', '—'], ['803', 'Lab 8.2 Happiness Detector', '—'], ['806', 'Lab 8.4 Extra', '—']]],
+  ['Tests & Quizzes', 75, [['901', 'HW Quiz 1.1-2.1', '10 / 10'], ['902', 'Lesson 0-4 Test', '47.44 / 50'], ['804', 'HW Quiz 7-8', '8 / 10'], ['903', 'HW Quiz 5-6', '9.5 / 10']]],
+];
+const ITEMS = {
+  802: { missing: true, work: 'todo' }, 803: { work: 'ready' }, 804: { cleared: true, cleared_by: 'schoology' }, 805: { removed: true }, 801: { cleared: true, cleared_by: 'schoology' },
+};
+const CLASS = { name: 'AP CS A', short_code: 'AP CS A', colour_index: 2 };
+const title = Object.values(FOLDERS).flatMap((x) => x.items).find((x) => x.id === ID);
+document.getElementById('title').textContent = title.t;
+document.getElementById('due').textContent = `Due ${title.due}`;
+document.getElementById('body').innerHTML = `Do <a href="#">${title.t}</a>. Hand in your .java files.`;
+const graded = GB.flatMap(([, , its]) => its).find(([id]) => id === ID)?.[2];
+document.getElementById('gv').textContent = graded && graded !== '—' ? graded : 'N/A';
+if (graded && graded !== '—') document.getElementById('submit').remove();
+
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+function tableHtml(fid) {
+  const rows = FOLDERS[fid].items.map((it) => {
+    if (it.k === 'folder') {
+      return `<tr id="f-${it.id}" class="material-row-folder dr"><td><div class="folder-title"><a href="/course/${SECTION}/materials?f=${it.id}">${esc(FOLDERS[it.id].name)}</a></div></td></tr>`;
+    }
+    const href = it.k === 'assignment' ? `/assignment/${it.id}` : `/course/${SECTION}/materials/gp/${it.id}`;
+    return `<tr id="n-${it.id}" class="dr type-${it.k}"><td><div class="item-info"><div class="item-title"><a href="${href}">${esc(it.t)}</a></div>`
+      + `<div class="item-subtitle">${it.due ? `Due ${it.due}` : ''}</div></div></td></tr>`;
+  }).join('');
+  return `<table id="folder-contents-table"><tbody>${rows}</tbody></table>`;
+}
+function gradesHtml() {
+  let h = '<table><tr class="report-row period-row"><th><span class="title">T1</span></th><td class="grade-column">A (96%)</td></tr>';
+  for (const [cat, w, its] of GB) {
+    h += `<tr class="report-row category-row"><th><span class="title">${esc(cat)}</span><span class="percentage-contrib">(${w}%)</span></th><td class="grade-column"></td></tr>`;
+    for (const [id, t, g] of its) h += `<tr class="report-row item-row" data-id="I-${id}"><th class="title-column"><span class="title">${esc(t)}</span></th><td class="grade-column">${g}</td></tr>`;
+  }
+  return `${h}</table>`;
+}
+
+const mem = {
+  'course:fuhsd.schoology.com:8465375857': {
+    courseName: 'AP Comp Sci A', runs: [{ at: new Date(Date.now() - 2 * 86400e3).toISOString() }],
+    items: { 'n-d8': { files: ['Lesson 8 - Control Structures/Effective Reading + Agenda 9 - 17.pdf'] }, 'n-d0': { files: ['Syllabus.pdf'] } },
+  },
+};
+const store = {
+  async get(k) { return structuredClone(mem[k]); },
+  async set(k, v) { mem[k] = structuredClone(v); },
+  watch() {},
+};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function getDoc(url) {
+  await wait(120);
+  const u = new URL(url);
+  const html = u.pathname.endsWith('/student_grades') ? gradesHtml() : tableHtml(u.searchParams.get('f') || 'root');
+  return new DOMParser().parseFromString(html, 'text/html');
+}
+const asItem = (id) => ({ id: `np-${id}`, source_id: id, type: 'assignment', class: CLASS, ...ITEMS[id] });
+async function call(op, args) {
+  await wait(150);
+  if (q.has('notoken')) return { ok: false, status: 401, data: { error: 'unauthorized' } };
+  if (op === 'items') return { ok: true, status: 200, data: { items: args.schoology_ids.filter((id) => ITEMS[id]).map(asItem) } };
+  if (op === 'addItem') { ITEMS[args.item.schoology_id] = { work: 'todo' }; return { ok: true, status: 200, data: asItem(args.item.schoology_id) }; }
+  const id = String(args.id).replace(/^np-/, '');
+  if (op === 'remove') { ITEMS[id] = { ...ITEMS[id], removed: true }; return { ok: true, status: 200, data: asItem(id) }; }
+  if (op === 'restore') { ITEMS[id] = { ...ITEMS[id], removed: false }; return { ok: true, status: 200, data: asItem(id) }; }
+  return { ok: false, status: 404, data: {} };
+}
+async function send(m) {
+  await wait(100);
+  ITEMS[m.schoology_id] = { ...(ITEMS[m.schoology_id] || {}), cleared: true, cleared_by: 'schoology', missing: false };
+  return { ok: true, data: { already: false } };
+}
+// Schoology's submit dialog finishing: its button becomes the submission, late.
+document.getElementById('submit')?.addEventListener('click', () => {
+  const s = document.getElementById('submit');
+  const st = document.createElement('div');
+  st.className = 'submission-status late';
+  st.textContent = 'Submitted late: CheckMail.java';
+  s.replaceWith(st);
+});
+
+globalThis.__npNoAutoStart = true;
+const { start } = await import('../overlays/assignment.js');
+const loc = { pathname: `/assignment/${ID}/info`, search: '', origin: location.origin, host: 'fuhsd.schoology.com', href: `${location.origin}/assignment/${ID}/info` };
+window.overlay = start({ loc, call, getDoc, store, send });
+</script></body></html>

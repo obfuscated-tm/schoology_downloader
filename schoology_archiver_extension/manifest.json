@@ -55,17 +55,27 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "overlays/asgstate.js",
         "overlays/assignment.js",
         "overlays/course.js",
+        "overlays/coursedata.js",
+        "overlays/grademath.js",
+        "overlays/grades.js",
         "overlays/home.js",
         "overlays/launcher.js",
+        "overlays/marker.js",
         "overlays/marks.js",
+        "overlays/materials.js",
+        "overlays/matstate.js",
+        "overlays/switch.js",
         "overlays/ui.js",
+        "overlays/fonts/*.woff2",
+        "reader/md.js",
+        "reader/parse/grades.js",
+        "reader/parse/materials.js",
         "reader/parse/sync.js",
         "util.js",
-        "panel/today-format.js",
-        "panel/fonts/public-sans-latin.woff2",
-        "panel/fonts/ibm-plex-mono-latin-400.woff2"
+        "panel/today-format.js"
       ],
       "matches": [
         "https://*.schoology.com/*"
