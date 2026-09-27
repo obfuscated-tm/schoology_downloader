@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- A stand-in for a course page's right column (e.g. /course/{id}/materials,
+     /course/{id}/updates — any course page carries the same Upcoming
+     column), with the markup (as seen on fuhsd.schoology.com, Sep 2026)
+     reader/parse/sync.js's homeRowsIn and overlays/coursetodo.js read:
+     `#course-events` inside `#right-column-inner` / `#right-column`, headed
+     by `h3#event-selector` "Upcoming", day headings, then `.upcoming-event`
+     rows. Serve schoology_archiver_extension/ (python3 -m http.server) and
+     open /test/course-page.html, to look at overlays/coursetodo.js's own To
+     Do panel outside Schoology. ?fail makes the events fetch fail, to check
+     the fallback (Schoology's own Upcoming column stays up). The events
+     below are the task's own fixture (test/todo.test.js), with a couple
+     retargeted to this course's own section id so the panel has something
+     to show. -->
+<html><head><meta charset="utf-8"><title>Course page stand-in</title>
+<style>
+body { font: 13px Arial, sans-serif; color: #333; background: #fff; margin: 24px; }
+.layout { display: flex; gap: 24px; align-items: flex-start; }
+.main { flex: 1 1 auto; min-width: 0; }
+.right { width: 320px; flex: none; }
+h2 { margin: 0 0 12px; }
+h3 { font-size: 14px; margin: 0 0 8px; }
+h4 { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 4px; }
+.upcoming-events-wrapper { border: 1px solid #e3e3e3; border-radius: 4px; padding: 10px 12px; margin-bottom: 16px; }
+.upcoming-event { padding: 6px 0; border-bottom: 1px solid #eee; }
+.upcoming-event a { color: #0677BA; text-decoration: none; display: block; }
+.realm-title-course { color: #888; font-size: 11px; }
+.due-text { display: block; color: #888; font-size: 11px; }
+label.toggle { display: block; margin-bottom: 12px; font-size: 12px; }
+</style></head>
+<body>
+<h2 id="crumb">AP Comp Sci A: McLeodT p2 T1</h2>
+<label class="toggle"><input type="checkbox" id="overlay-switch" checked> Overlay on</label>
+<div class="layout">
+  <div class="main">
+    <p style="color:#888">(The course's own content — Materials, Updates, etc. — would be here. This stand-in only exercises the right column.)</p>
+  </div>
+  <div class="right">
+    <div id="right-column"><div id="right-column-inner">
+    <div class="upcoming-events-wrapper" id="course-events">
+      <h3 id="event-selector">Upcoming</h3>
+      <h4>Sunday, September 27, 2026</h4>
+      <div class="upcoming-event" data-start="1790200740"><a href="/assignment/10">Lab 9.1 Fibonacci</a><span class="realm-title-course">AP Comp Sci A - 2350</span><span class="due-text">Due Sunday, September 27, 2026 at 11:59 pm</span></div>
+      <div class="upcoming-event" data-start="1790200740"><a href="/assignment/11">Read Lesson 9</a><span class="realm-title-course">AP Comp Sci A - 2350</span><span class="due-text">Due Sunday, September 27, 2026 at 11:59 pm</span></div>
+      <h4>Tuesday, September 29, 2026</h4>
+      <div class="upcoming-event" data-start="1790330700"><a href="/assignment/14">Mini Quiz 1 - Ternary Operator and If-Else logic</a><span class="realm-title-course">AP Comp Sci A - 2350</span><span class="due-text">Due Tuesday, September 29, 2026 at 10:05 am</span></div>
+      <div class="upcoming-event" data-start="1790352000"><a href="/assignment/15">In-class Lab 6.2 - Static Review</a><span class="realm-title-course">AP Comp Sci A - 2350</span><span class="due-text">Due Tuesday, September 29, 2026 at 4:00 pm</span></div>
+    </div>
+    </div></div>
+  </div>
+</div>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const SECTION = '23'; // matches this course page's own section, below
+
+// ── The events the panel filters down to this section (the task's own fixture) ──
+const OVERDUE = [
+  { schoology_id: '1', title: 'French Revolution Quick Write', course: 'World History - 1620', section_id: '16', due: '2026-09-15T18:59:00', graded: false, url: '/assignment/1' },
+  { schoology_id: '3', title: 'HW #13: Pg. 648 # 29-37(odd)', course: 'Pre-Calculus H - 2420', section_id: '24', due: '2026-09-21T18:59:00', graded: false, url: '/assignment/3' },
+];
+const UPCOMING = [
+  { schoology_id: '10', title: 'Lab 9.1 Fibonacci', course: 'AP Comp Sci A - 2350', section_id: SECTION, due: '2026-09-27T23:59:00', graded: false, url: '/assignment/10' },
+  { schoology_id: '11', title: 'Read Lesson 9', course: 'AP Comp Sci A - 2350', section_id: SECTION, due: '2026-09-27T23:59:00', graded: false, url: '/assignment/11' },
+  { schoology_id: '14', title: 'Mini Quiz 1 - Ternary Operator and If-Else logic', course: 'AP Comp Sci A - 2350', section_id: SECTION, due: '2026-09-29T10:05:00', graded: false, url: '/assignment/14' },
+  { schoology_id: '15', title: 'In-class Lab 6.2 - Static Review', course: 'AP Comp Sci A - 2350', section_id: SECTION, due: '2026-09-29T16:00:00', graded: false, url: '/assignment/15' },
+  { schoology_id: '16', title: 'Chapter 10 Exam (points to be determined)', course: 'Pre-Calculus H - 2420', section_id: '24', due: '2026-09-29T23:59:00', graded: false, url: '/assignment/16' },
+];
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function getEvents(list) {
+  await wait(150);
+  if (q.has('fail')) throw new Error('HTTP 401');
+  return list === 'overdue' ? OVERDUE : UPCOMING;
+}
+const mem = {};
+const store = { async get(k) { return mem[k]; }, async set(k, v) { mem[k] = v; } };
+async function call(op, args) {
+  await wait(120);
+  if (op === 'items') return { ok: true, status: 200, data: { items: [] } }; // nothing in neo-plan yet: every row offers "+ Add to neo-plan"
+  if (op === 'addItem') return { ok: true, status: 200, data: { id: 'new', work: 'todo' } };
+  return { ok: false, status: 404, data: {} };
+}
+
+globalThis.__npNoAutoStart = true;
+const { start } = await import('../overlays/course.js');
+const now = () => new Date('2026-09-27T12:00:00');
+window.overlay = await start({ loc: { pathname: `/course/${SECTION}/updates` }, call, getEvents, store, now });
+
+document.getElementById('overlay-switch').addEventListener('change', async (e) => {
+  const { setOverlay } = await import('../overlays/ui.js');
+  setOverlay(e.target.checked);
+});
+</script>
+</body></html>

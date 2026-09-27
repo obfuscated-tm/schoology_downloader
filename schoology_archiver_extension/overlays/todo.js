@@ -27,10 +27,24 @@
 import { parseEventsJson, nextEventsUrl } from '../reader/parse/sync.js';
 import { createHost, el, keepEvents, onOverlay, isOverlayOn, debounce } from './ui.js';
 import { limitedFetch } from '../reader/ratelimit.js';
+import {
+  calendarDays, formatDue, formatOverdue, annotateItems, sortDueItems,
+  ROW_CSS, tagFor, buildRow,
+} from './todorows.js';
+
+// Re-exported: test/todo.test.js imports these from here.
+export { formatDue, formatOverdue, tagFor };
 
 export const TODO_LISTS = ['overdue', 'upcoming'];
 const REREAD_MS = 180_000; // Schoology's own response says `@cache.max_age: 180` for these lists
 const CAP = 5;
+// async: in a tab left open across an extension reload, chrome.storage throws
+// "Extension context invalidated" synchronously; this turns it into a rejection
+// the callers already catch. Shared with overlays/coursetodo.js.
+export const defaultStore = {
+  get: async (k) => (await chrome.storage.local.get(k))?.[k],
+  set: async (k, v) => chrome.storage.local.set({ [k]: v }),
+};
 const MAX_PAGES = 20; // a runaway @links.next loop should never hang the tab
 
 // ── Fetching (paginated; reused by home.js for the /home/assignments list) ──
@@ -53,7 +67,7 @@ export async function fetchEvents(list, { fetchImpl = limitedFetch } = {}) {
 
 // ── Events cache: last good lists, shown instantly while a fresh read runs ──
 
-const EVENTS_CACHE_KEY = 'todoEventsCache';
+export const EVENTS_CACHE_KEY = 'todoEventsCache'; // coursetodo.js shares this cache (same two lists for the whole account)
 const EVENTS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // older than this, don't trust it at all
 
 /**
@@ -96,39 +110,6 @@ export function colorIndexOf(name) {
   return (Math.abs(h) % 8) + 1;
 }
 
-const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-const calendarDays = (a, b) => Math.round((startOfDay(a) - startOfDay(b)) / 86_400_000);
-
-/** "12 d overdue" (days is always ≥ 0; the caller only calls this for overdue items). */
-export function formatOverdue(days) {
-  return `${Math.max(0, Math.round(days))} d overdue`;
-}
-
-function formatTime(d) {
-  let h = d.getHours();
-  const m = d.getMinutes();
-  const ap = h >= 12 ? 'pm' : 'am';
-  h %= 12;
-  if (h === 0) h = 12;
-  return `${h}:${String(m).padStart(2, '0')} ${ap}`;
-}
-
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/**
- * "Tue Sep 29, 8:30 am": always the full specific date and time, no relative
- * words ("Today"/"Tomorrow") and never dropping the time far out — the grid
- * layout gives every row the room for it. "No due date" when there is none;
- * '' only for a due string that fails to parse.
- */
-export function formatDue(due, now = new Date()) {
-  if (!due) return 'No due date';
-  const d = new Date(due);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${WEEKDAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${d.getDate()}, ${formatTime(d)}`;
-}
-
 /**
  * Group overdue + upcoming events by class, in `cards`' order (the Course
  * Dashboard's cards, [{ name }], top to bottom). A class card is always
@@ -154,24 +135,15 @@ export function groupEvents({ overdue = [], upcoming = [], cards = [], now = new
   }
   const other = { key: '\u0000other', name: 'Other', colorIndex: 0, isClass: false, isOther: true, items: [] };
 
-  const place = (e, extra) => {
-    const item = { ...e, ...extra };
-    const g = (e.section_id && bySection.get(String(e.section_id))) || byKey.get(String(e.course || '').trim().toLowerCase());
+  const place = (item) => {
+    const g = (item.section_id && bySection.get(String(item.section_id))) || byKey.get(String(item.course || '').trim().toLowerCase());
     (g || other).items.push(item);
   };
-  for (const e of overdue) {
-    const days = e.due ? calendarDays(now, new Date(e.due)) : 0;
-    place(e, { overdue: true, days });
-  }
-  for (const e of upcoming) place(e, { overdue: false });
+  for (const item of annotateItems({ overdue, upcoming, now })) place(item);
 
   const groups = order.filter((g) => g.isClass || g.items.length).concat(other.items.length ? [other] : []);
   for (const g of groups) {
-    g.items.sort((a, b) => {
-      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
-      if (a.overdue) return (b.days ?? 0) - (a.days ?? 0); // oldest (most days overdue) first
-      return new Date(a.due || 0) - new Date(b.due || 0); // soonest first
-    });
+    g.items = sortDueItems(g.items);
     g.dueToday = g.items.some((it) => it.due && calendarDays(new Date(it.due), now) === 0);
   }
   return groups;
@@ -222,106 +194,15 @@ function cardContainerIn(doc) {
 
 // ── Rendering ────────────────────────────────────────────────────────────
 
-const CSS = `
-:host { display: block; }
-.panel { background: var(--sunk); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin: 0 0 16px; }
-.todo-h { font-size: 15px; font-weight: 600; padding: 0 0 6px; margin: 0 0 10px; border-bottom: 1px solid var(--line); }
+// The group/header chrome, on top of todorows.js's shared panel/row CSS.
+const CSS = ROW_CSS + `
 .group { margin: 0 0 14px; }
 .group:last-child { margin-bottom: 0; }
 .ghead { display: flex; align-items: center; gap: 8px; padding: 2px 0 6px; border-bottom: 1px solid var(--line); }
 .gname { font-weight: 600; }
 .gcount { margin-left: auto; color: var(--faint); }
 .gtoday { color: var(--bad); background: var(--bad-soft); border-radius: 3px; padding: 1px 6px; font-size: 11px; font-weight: 600; }
-.nothing { color: var(--faint); padding: 8px 0 2px; }
-.row {
-  display: grid; grid-template-columns: 14px 1fr; grid-template-rows: auto auto;
-  align-items: stretch; column-gap: 8px; row-gap: 2px; padding: 6px 0; border-bottom: 1px solid #E9ECF0;
-}
-.row:last-child { border-bottom: 0; }
-.tag {
-  grid-row: 1 / span 2; grid-column: 1;
-  writing-mode: vertical-rl; transform: rotate(180deg);
-  display: flex; align-items: center; justify-content: center;
-  width: 14px; font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: .04em;
-  border-radius: 3px; white-space: nowrap;
-}
-.tag-solid { background: var(--ink); color: #fff; }
-.tag-outline { border: 1px solid var(--line); color: var(--dim); background: var(--surface); }
-.tag-empty { border: 1px dashed var(--line); }
-.tag-faint { border: 1px solid var(--line); color: var(--faint); background: var(--surface); }
-.title-wrap { grid-column: 2; grid-row: 1; min-width: 0; }
-a.title {
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  color: var(--ink); text-decoration: none; font-weight: 500;
-}
-a.title:hover { color: var(--accent); text-decoration: underline; }
-a.title.exam { font-weight: 700; }
-.sub {
-  grid-column: 2; grid-row: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0;
-  font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums;
-}
-.due { white-space: nowrap; }
-.due.over { color: var(--bad); }
-.mark-group { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
-.mark-slot { display: inline-flex; align-items: center; min-width: 0; }
-.more { display: block; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; margin-top: 4px; font-size: 12px; }
-.err { color: var(--dim); padding: 8px 0; }
 `;
-
-// ── The rotated type tag (column 1) ─────────────────────────────────────────
-
-const TYPE_LABEL = { exam: 'TEST', assignment: 'HW', classwork: 'CW', task: 'TASK', meeting: 'MEET' };
-
-/**
- * The type tag's text and CSS class, from the Item marks.js knows about (or
- * null: not in neo-plan; or undefined: not known yet). Pure — item.type wins
- * even when marks.js's own rowState() says 'unknown' (a graded row still
- * knows its item, just not its open/done state).
- */
-export function tagFor(item) {
-  if (item) {
-    const text = TYPE_LABEL[item.type] || '';
-    if (!text) return { text: '', cls: '' };
-    return { text, cls: item.removed ? 'tag-faint' : item.type === 'exam' ? 'tag-solid' : 'tag-outline' };
-  }
-  if (item === null) return { text: '', cls: 'tag-empty' }; // not in neo-plan: the dashed prompt to add
-  return { text: '', cls: '' }; // unknown/still loading: no border
-}
-
-/** One item row, as an object marks.js's rowsIn can hand straight to startMarks. */
-function buildRow(item) {
-  const rowEl = el('div', 'row');
-  const tag = el('div', 'tag');
-  const wrap = el('div', 'title-wrap');
-  const a = el('a', 'title', item.title);
-  a.href = item.url || `/assignment/${item.schoology_id}`;
-  a.title = item.title;
-  wrap.append(a);
-  const sub = el('div', 'sub');
-  if (item.overdue) {
-    sub.append(el('span', 'due over', formatDue(item.due)), document.createTextNode(` · ${formatOverdue(item.days)}`));
-  } else {
-    sub.append(el('span', 'due', formatDue(item.due)));
-  }
-  const markSlot = el('span', 'mark-slot');
-  const markGroup = el('span', 'mark-group'); // "· <marker>" wraps to its own line as one unit, never an orphaned dot
-  markGroup.append(document.createTextNode('· '), markSlot);
-  sub.append(markGroup);
-  rowEl.append(tag, wrap, sub);
-  const onState = (state, planItem) => {
-    const { text, cls } = tagFor(planItem);
-    tag.className = `tag ${cls}`.trim();
-    tag.textContent = text;
-    a.classList.toggle('exam', !!(planItem && planItem.type === 'exam'));
-    // marks.js hides the marker host itself only for 'unknown' (a graded row,
-    // or neo-plan hasn't answered yet): the leading "· " would dangle alone.
-    markGroup.hidden = state.kind === 'unknown';
-  };
-  return {
-    el: rowEl, titleEl: a, markSlot, onState,
-    schoology_id: item.schoology_id, title: item.title, section_id: item.section_id || null, graded: item.graded,
-  };
-}
 
 function renderGroup(g, expanded) {
   const box = el('div', 'group');
@@ -355,10 +236,7 @@ function renderGroup(g, expanded) {
  */
 export function start({
   doc = document, loc = location, getEvents = fetchEvents,
-  // async: in a tab left open across an extension reload, chrome.storage throws
-  // "Extension context invalidated" synchronously; this turns it into a rejection
-  // the callers already catch.
-  store = { get: async (k) => (await chrome.storage.local.get(k))?.[k], set: async (k, v) => chrome.storage.local.set({ [k]: v }) },
+  store = defaultStore,
   now = () => new Date(),
 } = {}) {
   const expanded = new Set(); // group key → expanded (memory only)

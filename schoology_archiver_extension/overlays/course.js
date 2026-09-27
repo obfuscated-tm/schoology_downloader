@@ -1,18 +1,29 @@
 // A course's pages (Materials, Updates, …): on Materials and its folders, the
 // strip, folder totals and row markers of overlays/materials.js; on every
-// course page, a marker at the end of each row of the Upcoming column
-// (overlays/marks.js says what it shows).
+// course page, our own To Do panel in place of Schoology's Upcoming column
+// (overlays/coursetodo.js), with a marker at the end of each row
+// (overlays/marks.js says what it shows) — Schoology's own Upcoming rows when
+// our panel hasn't loaded (or the overlay is off), same as home.js's fallback.
 
 import { homeRowsIn } from '../reader/parse/sync.js';
 import { startMarks } from './marks.js';
 import { start as startMaterials } from './materials.js';
+import { start as startCourseTodo } from './coursetodo.js';
 
-export function start({ doc = document, loc = location, call } = {}) {
+export function start({
+  doc = document, loc = location, call, getEvents, store, now,
+} = {}) {
   const section = (loc.pathname.match(/^\/course\/(\d+)/) || [])[1] || null;
-  const rowsIn = (d) => homeRowsIn(d, { everyRow: true }).map((r) => ({ ...r, section_id: section }));
   const withCall = call ? { call } : {};
+  const courseTodo = startCourseTodo({
+    doc, loc, ...(getEvents ? { getEvents } : {}), ...(store ? { store } : {}), ...(now ? { now } : {}),
+  });
+  const rowsIn = (d) => (courseTodo.active() ? courseTodo.rowsIn() : homeRowsIn(d, { everyRow: true }).map((r) => ({ ...r, section_id: section })));
+  const marks = startMarks({ rowsIn, doc, loc, ...withCall });
+  courseTodo.setMarks(marks);
   return {
-    upcoming: startMarks({ rowsIn, doc, loc, ...withCall }),
+    upcoming: marks,
+    courseTodo,
     materials: startMaterials({ doc, loc, ...withCall }),
   };
 }

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Schoology Course Archiver",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Archive a Schoology course (files, Google Docs, assignments, your submissions, grades) into your Downloads folder, with an INDEX.md for AI study tools.",
   "action": {
     "default_title": "Open Schoology Archiver",
@@ -59,6 +59,7 @@
         "overlays/assignment.js",
         "overlays/course.js",
         "overlays/coursedata.js",
+        "overlays/coursetodo.js",
         "overlays/grademath.js",
         "overlays/grades.js",
         "overlays/home.js",
@@ -69,6 +70,7 @@
         "overlays/matstate.js",
         "overlays/switch.js",
         "overlays/todo.js",
+        "overlays/todorows.js",
         "overlays/ui.js",
         "overlays/fonts/*.woff2",
         "reader/md.js",
