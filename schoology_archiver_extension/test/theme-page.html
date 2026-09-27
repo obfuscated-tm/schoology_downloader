@@ -1,0 +1,71 @@
+<!doctype html>
+<!-- A stand-in "Schoology page" to look at themes and the settings menu
+     outside Schoology (docs/OVERLAY-UI.md, "Themes and settings"): a fake
+     header with the structural markup our selectors target
+     (#header > header nav > ul > li > a/button), some body content, and an
+     <img> to check the dark-theme re-invert rule. Serve
+     schoology_archiver_extension/ (python3 -m http.server) and open
+     /test/theme-page.html.
+
+     Outside the extension chrome.* doesn't exist, so ui.js's settings live
+     only in memory for this tab (getSettings/setSetting still work — that's
+     what the settings menu here runs on). Reload to reset to 'schoology'. -->
+<html><head><meta charset="utf-8"><title>Theme stand-in</title>
+<style>
+  body { font: 13px Arial, sans-serif; color: #333; background: #fff; margin: 0; }
+  #header > header {
+    display: flex; align-items: center; height: 52px; padding: 0 16px;
+    background: #fff; border-top: 3px solid #ddd;
+  }
+  #header > header .logo { font-weight: bold; font-size: 16px; color: #333; margin-right: 24px; }
+  #header > header nav { display: flex; flex: 1; background: #fff; height: 100%; }
+  #header > header nav > ul { display: flex; list-style: none; margin: 0; padding: 0; height: 100%; }
+  #header > header nav > ul > li { display: flex; }
+  #header > header nav > ul > li > a, #header > header nav > ul > li > button {
+    display: flex; align-items: center; height: 100%; padding: 0 14px;
+    color: #333; text-decoration: none; font: inherit; background: none; border: 0; cursor: pointer;
+  }
+  main { max-width: 760px; margin: 24px auto; padding: 0 16px; }
+  main img { max-width: 100%; border-radius: 4px; display: block; margin: 16px 0; }
+  .card { border: 1px solid #e3e3e3; border-radius: 4px; padding: 16px; margin-bottom: 16px; }
+  .card h3 { margin: 0 0 8px; }
+</style></head>
+<body>
+<div id="header">
+  <header>
+    <span class="logo">Schoology</span>
+    <nav>
+      <ul>
+        <li><a href="#courses">Courses</a></li>
+        <li><a href="#groups">Groups</a></li>
+        <li><a href="#resources">Resources</a></li>
+        <li><button type="button">Grades ▾</button></li>
+        <li><button type="button">Owen ▾</button></li>
+      </ul>
+    </nav>
+  </header>
+</div>
+<main>
+  <h2>AP Comp Sci A: McLeodT p2 T1</h2>
+  <div class="card">
+    <h3>Lesson 8 - Recursion</h3>
+    <p>Some ordinary Schoology content, left exactly as it is — the overlay only adds to the page, and the Overlay switch off should make this look completely untouched (themes included).</p>
+    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/React-icon.svg/240px-React-icon.svg.png" alt="a stand-in image, to check the dark-theme re-invert rule">
+  </div>
+  <div class="card">
+    <h3>Course Information</h3>
+    <p>Open the settings gear next to the Overlay switch (bottom left) to try every theme, and the Materials "Percent beside scores" checkbox.</p>
+  </div>
+</main>
+<script type="module">
+  globalThis.__npNoAutoStart = true;
+  const [{ start: startSwitch }, { start: startLauncher }, theme] = await Promise.all([
+    import('../overlays/switch.js'),
+    import('../overlays/launcher.js'),
+    import('../overlays/theme.js'),
+  ]);
+  startSwitch();
+  startLauncher();
+  theme.start();
+</script>
+</body></html>

@@ -1,8 +1,8 @@
 // Shared by the overlays: a shadow-rooted host of our own in the overlay's
-// look (docs/OVERLAY-UI.md: light only, one 6px radius, no shadows,
-// Instrument Sans + JetBrains Mono bundled here), the Overlay on/off switch
-// every host obeys, and the message to the service worker. Content scripts
-// never see the neo-plan token.
+// look (docs/OVERLAY-UI.md: one 6px radius, no shadows, Instrument Sans +
+// JetBrains Mono bundled here — themeable, see "Themes and settings"), the
+// Overlay on/off switch every host obeys, and the message to the service
+// worker. Content scripts never see the neo-plan token.
 
 /** { ok, status, data } from the service worker; never throws. */
 export async function np(op, args = {}) {
@@ -98,6 +98,30 @@ function applyOverlay() {
   for (const fn of listeners) fn(overlayOn !== false);
 }
 
+// ── Per-host theme tokens ───────────────────────────────────────────────
+// theme.js owns THEMES and hands us a (themeKey) => css function, so this
+// file doesn't need to import theme.js (no cycle: theme.js imports this one
+// for onOverlay/onSettings). Each host gets a second <style data-np-theme>
+// holding :host { --accent; --accent-soft } and, in dark themes, the same
+// media re-invert rule theme.js writes on the page (a page stylesheet can't
+// reach into a shadow root).
+let themeProvider = null;
+
+function hostThemeCss() {
+  return themeProvider ? themeProvider(settings.theme) || '' : '';
+}
+
+function refreshHostThemes() {
+  const css = hostThemeCss();
+  for (const { themeStyle } of hosts) themeStyle.textContent = css;
+}
+
+/** theme.js registers its (themeKey) => css function here once, on import. */
+export function setThemeProvider(fn) {
+  themeProvider = fn;
+  refreshHostThemes();
+}
+
 function setLocal(on) {
   if (overlayOn === on) return;
   overlayOn = on;
@@ -130,6 +154,50 @@ export function setOverlay(on) {
   try { chrome.storage.local.set({ [OVERLAY_KEY]: !!on }).catch(() => {}); } catch { /* tests */ }
 }
 
+// ── Settings ────────────────────────────────────────────────────────────
+// The settings menu's choices (switch.js draws the menu), one object in
+// chrome.storage.local, for every Schoology page:
+//   theme    a key of THEMES (theme.js)
+//   percent  a small "95%" beside each graded score
+export const SETTINGS_KEY = 'overlaySettings';
+export const SETTINGS_DEFAULTS = { theme: 'schoology', percent: true };
+let settings = { ...SETTINGS_DEFAULTS };
+let settingsRead = false;
+const settingsListeners = new Set();
+
+function applySettings(next) {
+  settings = { ...SETTINGS_DEFAULTS, ...(next && typeof next === 'object' ? next : {}) };
+  settingsRead = true;
+  refreshHostThemes();
+  for (const fn of settingsListeners) fn(settings);
+}
+
+try {
+  chrome.storage.local.get(SETTINGS_KEY).then((got) => applySettings(got?.[SETTINGS_KEY]), () => applySettings(null));
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && SETTINGS_KEY in changes) applySettings(changes[SETTINGS_KEY].newValue);
+  });
+} catch {
+  settingsRead = true; // not in the extension (tests): the defaults
+}
+
+/** The settings now (the defaults until they're read). */
+export const getSettings = () => settings;
+
+/** fn(settings) once they're read, and after every change. */
+export function onSettings(fn) {
+  settingsListeners.add(fn);
+  if (settingsRead) fn(settings);
+  return () => settingsListeners.delete(fn);
+}
+
+/** Change one setting, on this page at once and saved for every page. */
+export function setSetting(key, value) {
+  const next = { ...settings, [key]: value };
+  applySettings(next);
+  try { chrome.storage.local.set({ [SETTINGS_KEY]: next }).catch(() => {}); } catch { /* tests */ }
+}
+
 /**
  * A host element of our own with a closed shadow root and the base CSS. It
  * follows the Overlay switch unless `keep` (the switch itself).
@@ -137,12 +205,16 @@ export function setOverlay(on) {
 export function createHost(tag, css, { keep = false } = {}) {
   loadFonts();
   const host = document.createElement(tag);
-  hosts.add({ host, keep });
   host.toggleAttribute(OFF_ATTR, !keep && overlayOn !== true);
   const root = host.attachShadow({ mode: 'closed' });
   const style = document.createElement('style');
   style.textContent = BASE_CSS + (css || '');
   root.append(style);
+  const themeStyle = document.createElement('style');
+  themeStyle.setAttribute('data-np-theme', '');
+  themeStyle.textContent = hostThemeCss();
+  root.append(themeStyle);
+  hosts.add({ host, keep, themeStyle });
   return { host, root };
 }
 

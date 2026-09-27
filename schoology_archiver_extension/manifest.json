@@ -47,6 +47,19 @@
         "https://*.schoology.com/assignment/*/dropbox*"
       ],
       "js": [
+        "overlays/theme-early.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://*.schoology.com/*"
+      ],
+      "exclude_matches": [
+        "https://*.schoology.com/assignment/*/assessment*",
+        "https://*.schoology.com/assignment/*/dropbox*"
+      ],
+      "js": [
         "overlays/boot.js"
       ],
       "run_at": "document_idle"
@@ -69,6 +82,7 @@
         "overlays/materials.js",
         "overlays/matstate.js",
         "overlays/switch.js",
+        "overlays/theme.js",
         "overlays/todo.js",
         "overlays/todorows.js",
         "overlays/ui.js",

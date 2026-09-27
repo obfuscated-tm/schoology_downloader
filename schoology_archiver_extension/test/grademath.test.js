@@ -106,8 +106,18 @@ test('what-if: a zero on HW Quiz 7-8 costs −5.99', () => {
   close(impact(COURSE, id('HW Quiz 7-8'), opts), -5.99375);
   // "—" rows don't say their points, so a bare score without possible is ignored.
   close(grade(COURSE, { weights: WEIGHTS, whatIf: { [id('HW Quiz 7-8')]: 0 } }).pct, 96.925);
-  // A what-if on a graded row changes nothing.
-  close(grade(COURSE, { weights: WEIGHTS, whatIf: { [id('Lesson 0-4 Test')]: 0 } }).pct, 96.925);
+});
+
+test('what-if overrides a graded item too: earned, and possible if given', () => {
+  const tId = id('Lesson 0-4 Test'); // real: 47.44 / 50
+  // A bare number overrides earned only; possible (and every other item) stands.
+  close(grade(COURSE, { weights: WEIGHTS, whatIf: { [tId]: 0 } }).pct, 25 + 0.75 * (58.05 / 110) * 100);
+  // { earned, possible } overrides both.
+  close(grade(COURSE, { weights: WEIGHTS, whatIf: { [tId]: { earned: 50, possible: 55 } } }).pct,
+    25 + 0.75 * ((105.49 - 47.44 + 50) / (110 - 50 + 55)) * 100);
+  // impact() sees the overridden score too.
+  const opts = { weights: WEIGHTS, whatIf: { [tId]: 0 } };
+  close(impact(COURSE, tId, opts), grade(COURSE, opts).pct - (25 + 0.75 * (58.05 / 60) * 100));
 });
 
 test('history replays graded items by due date, one point per day', () => {
@@ -139,6 +149,29 @@ test('"need X for an A" on a planned item', () => {
   close(grade(COURSE, { weights: WEIGHTS, extra: [{ category: T, earned: r.need, possible: 50 }] }).pct, 93);
   assert.deepEqual(needFor(COURSE, { category: L, possible: 10, target: 93 }, { weights: WEIGHTS }), { status: 'any' });
   assert.deepEqual(needFor(COURSE, { category: T, possible: 10, target: 99 }, { weights: WEIGHTS }), { status: 'out' });
+});
+
+test('drop excludes an item from grade/impact/categoryFloor/needFor, like removing it from the course', () => {
+  const tId = id('Lesson 0-4 Test'); // in Tests & Quizzes
+  const without = { ...COURSE, categories: COURSE.categories.map((c) => ({ ...c, items: c.items.filter((it) => it.id !== tId) })) };
+  const dropOpts = { weights: WEIGHTS, drop: [tId] };
+  const wOpts = { weights: WEIGHTS };
+  close(grade(COURSE, dropOpts).pct, grade(without, wOpts).pct);
+  assert.equal(impact(COURSE, tId, dropOpts), null); // dropped: doesn't count, so no impact
+  // categoryFloor(L) and needFor(L) depend on the other category's (T's) pct,
+  // which the drop changes — same as computing them on the item-less course.
+  close(categoryFloor(COURSE, L, 93, dropOpts), categoryFloor(without, L, 93, wOpts));
+  assert.deepEqual(needFor(COURSE, { category: L, possible: 10, target: 93 }, dropOpts),
+    needFor(without, { category: L, possible: 10, target: 93 }, wOpts));
+  // a Set works the same as an array
+  close(grade(COURSE, { weights: WEIGHTS, drop: new Set([tId]) }).pct, grade(without, wOpts).pct);
+});
+
+test('history ignores both what-ifs and drops: it is the real term', () => {
+  const tId = id('Lesson 0-4 Test');
+  const h1 = history(COURSE, { weights: WEIGHTS });
+  const h2 = history(COURSE, { weights: WEIGHTS, whatIf: { [tId]: 0 }, drop: [tId] });
+  assert.deepEqual(h1, h2);
 });
 
 test('points mode: floor and need still solve', () => {

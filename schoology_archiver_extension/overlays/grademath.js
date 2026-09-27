@@ -10,9 +10,14 @@
 //
 // Every function takes the same `opts`:
 //   weights  { [category title]: percent } typed by Owen; beats the gradebook's
-//   whatIf   { [item id]: earned | { earned, possible } } for ungraded rows
-//            ("—" rows don't show their points, so pass possible for those)
+//   whatIf   { [item id]: earned | { earned, possible } }. On an ungraded
+//            ("—") row this is the only source of a score, so possible must
+//            come with it (a bare number, with no possible, is ignored). On a
+//            graded row it overrides earned (and possible, if given) — the
+//            real score stands in for whichever isn't given.
 //   extra    [{ category, earned, possible }] planned items that don't exist yet
+//   drop     item ids (array or Set) excluded from the math entirely, as if
+//            they didn't exist — a real decision, not a hypothetical
 
 /** The letter scale from the overlay demo. Not yet confirmed per course. */
 export const SCALE = [['A', 93], ['A-', 90], ['B+', 87], ['B', 83], ['B-', 80], ['C+', 77], ['C', 73], ['C-', 70], ['D', 60], ['F', 0]];
@@ -85,19 +90,21 @@ export function currentPeriod(periods) {
 
 // ── The grade ────────────────────────────────────────────────────────────
 
-/** The items that count, after what-ifs and planned items, grouped by category title. */
-function counted(course, { whatIf = {}, extra = [] } = {}) {
+/** The items that count, after drops, what-ifs and planned items, grouped by category title. */
+function counted(course, { whatIf = {}, extra = [], drop } = {}) {
+  const dropped = drop instanceof Set ? drop : new Set(drop || []);
   const byCat = new Map(course.categories.map((c) => [c.title, []]));
   for (const c of course.categories) {
     for (const it of c.items) {
+      if (dropped.has(it.id)) continue;
       const w = whatIf[it.id];
-      if (it.earned == null && w != null) {
+      if (w != null) {
         const ws = typeof w === 'object' ? w : { earned: w };
+        const earned = ws.earned ?? it.earned;
         const possible = ws.possible ?? it.possible;
-        if (ws.earned != null && possible != null) byCat.get(c.title).push({ ...it, earned: ws.earned, possible });
-      } else if (it.earned != null) {
-        byCat.get(c.title).push(it);
+        if (earned != null && possible != null) { byCat.get(c.title).push({ ...it, earned, possible }); continue; }
       }
+      if (it.earned != null) byCat.get(c.title).push(it);
     }
   }
   for (const x of extra) {
@@ -157,8 +164,9 @@ export function impact(course, id, opts = {}) {
 
 /**
  * Graded items replayed in due-date order, the course % recomputed after each
- * day → [{ day: 'YYYY-MM-DD' | null, pct, items: [title] }]. What-ifs and
- * planned items are not history and are ignored. Undated items come last.
+ * day → [{ day: 'YYYY-MM-DD' | null, pct, items: [title] }]. What-ifs, planned
+ * items and drops are not history and are ignored: it's the real term.
+ * Undated items come last.
  */
 export function history(course, opts = {}) {
   const weights = opts.weights;

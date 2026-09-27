@@ -4,18 +4,28 @@
 // are; this only adds, and only what the page doesn't already show:
 //   course row     beside Schoology's grade, Graph (a step chart of the
 //                  replayed term, in a row of our own under it) and, with
-//                  what-ifs, "→ A 96.12% ±delta Reset"; "X.XX above A" at right
+//                  what-ifs or drops, "→ A 96.12% ±delta Reset"; "X.XX above A"
+//                  at right
 //   category rows  "A holds down to NN.N%"; "→ NN.N%" with what-ifs; a weight
-//                  box only when Schoology shows no (N%) for the category
-//   graded items   the impact tag (course % with it − without it)
-//   "—" items      a what-if score box (and a points box: "—" rows don't say
-//                  what they're out of)
-//   after each category, a row of our own: "+ Plan an upcoming …"
-// The right-hand column is a <td> of ours appended to every row; it and our
-// own rows vanish with the Overlay switch like every host. Schoology hides
-// its Course Grade row, so the course-level additions sit on the current
-// period's row then. What-ifs and planned items live only in this page view;
-// typed weights are saved per course.
+//                  box only when Schoology shows no (N%) for the category; a
+//                  faint "+ plan" button, hover/focus-revealed, that opens a
+//                  row of our own under the category ("Plan an upcoming …")
+//                  while it's open (Remove closes it again)
+//   graded items   a small percent beside Schoology's score (Settings: on by
+//                  default); on hover/focus, faint "edit" (a what-if override
+//                  — Schoology Plus lets you edit any grade) and "drop"
+//                  buttons; the impact tag, or once dropped "dropped · undo"
+//                  and Schoology's own score struck through and faded
+//   "—" items      on hover/focus, a faint "what if" button that swaps in a
+//                  score box (and a points box: "—" rows don't say what
+//                  they're out of); it collapses back once empty and blurred
+// A row with an active what-if gets a thin inset left bar, not a full-row
+// fill — the loud version tested poorly. The right-hand column is a <td> of
+// ours appended to every row; it and our own rows vanish with the Overlay
+// switch like every host. Schoology hides its Course Grade row, so the
+// course-level additions sit on the current period's row then. What-ifs,
+// drops and planned items live only in this page view; typed weights are
+// saved per course.
 //
 // Only the current grading period (grademath.currentPeriod) is annotated.
 
@@ -23,8 +33,11 @@ import { parseGrades } from '../reader/parse/grades.js';
 import {
   periodsFromRows, currentPeriod, grade, impact, history, categoryFloor, needFor, letter, A_CUTOFF,
 } from './grademath.js';
-import { createHost, el, onOverlay, isOverlayOn, debounce, keepEvents } from './ui.js';
+import {
+  createHost, el, onOverlay, isOverlayOn, debounce, keepEvents, getSettings, onSettings,
+} from './ui.js';
 import { loadWeights, saveWeights } from './coursedata.js';
+import { THEMES, paint } from './theme.js';
 
 const EPS = 0.005;
 
@@ -35,6 +48,7 @@ const CSS = `
 }
 .imp.pos { color: var(--good); background: var(--good-soft); }
 .imp.neg { color: var(--bad); background: var(--bad-soft); }
+.pct { font-family: var(--mono); font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .acc { color: var(--accent); }
 .note { font-size: 12px; color: var(--accent); white-space: nowrap; }
 .note.warn { color: var(--bad); }
@@ -70,6 +84,13 @@ const INLINE_CSS = CSS + `
 .wi-pts { width: 44px; }
 .wi-score { width: 66px; }
 .w { width: 44px; }
+/* A faint button (what if / edit / drop / + plan) that only shows itself on
+ * hover or focus of the row it sits in — opacity, not display, so Tab still
+ * reaches it. :host-context looks at ancestors of the host, i.e. the <tr>. */
+.reveal { opacity: 0; color: var(--faint); transition: opacity .1s ease; }
+:host-context(tr:hover) .reveal,
+:host-context(tr:focus-within) .reveal,
+.reveal:focus-visible { opacity: 1; }
 `;
 
 const ROW_CSS = CSS + `
@@ -110,6 +131,26 @@ function shownPct(text) {
 
 /** A row our controls sit in never hears about clicks and keys on them. */
 const isShown = (node) => node.getClientRects().length > 0;
+
+/** "90" → "90%"; "93.28" → "93.3%". */
+function pctText(p) {
+  const r = Math.round(p * 10) / 10;
+  return `${Number.isInteger(r) ? r : r.toFixed(1)}%`;
+}
+
+/**
+ * After a blur, collapse a hover-revealed editor (one or more `fields`) back
+ * to its button — unless focus only moved to another field in it, or it still
+ * holds a value. A microtask late: at the moment one field blurs, the browser
+ * hasn't focused the next one yet.
+ */
+function onEditorBlur(root, fields, collapse) {
+  setTimeout(() => {
+    if (fields.includes(root.activeElement)) return;
+    if (fields.some((f) => f && f.value !== '')) return;
+    collapse();
+  }, 0);
+}
 
 function impTag(d, title) {
   if (d == null || Math.abs(d) < EPS) return null;
@@ -261,8 +302,9 @@ async function mountCourse({ doc, root: scope, courseId }) {
   if (!course) return null;
 
   const typed = await loadWeights(courseId); // only for categories Schoology shows no (N%) for
-  const whatIf = new Map(); // item id → { earned, possible }
+  const whatIf = new Map(); // item id → { earned, possible } — ungraded rows, or a graded row's override
   const plans = new Map(); // category title → { name, possible, score } (null: none open)
+  const dropped = new Set(); // item ids excluded from the math (a real decision, not a hypothetical)
   let chartOpen = false;
 
   const weights = () => {
@@ -273,8 +315,8 @@ async function mountCourse({ doc, root: scope, courseId }) {
   const extras = (except) => [...plans].filter(([t, p]) => t !== except && p && p.score != null && p.possible > 0)
     .map(([t, p]) => ({ category: t, earned: p.score, possible: p.possible }));
   const whatIfOpts = () => Object.fromEntries([...whatIf].filter(([, v]) => v.earned != null && v.possible > 0));
-  const opts = (exceptPlan) => ({ weights: weights(), whatIf: whatIfOpts(), extra: extras(exceptPlan) });
-  const anyWhatIf = () => Object.keys(whatIfOpts()).length > 0 || extras().length > 0;
+  const opts = (exceptPlan) => ({ weights: weights(), whatIf: whatIfOpts(), extra: extras(exceptPlan), drop: [...dropped] });
+  const anyWhatIf = () => Object.keys(whatIfOpts()).length > 0 || extras().length > 0 || dropped.size > 0;
 
   // Schoology hides its "Course Grade" row (display: none) and shows the grade
   // in a box under the table; then the current period's row, at the top,
@@ -285,7 +327,9 @@ async function mountCourse({ doc, root: scope, courseId }) {
   const updates = []; // () => void, run on every change
   const ourRows = []; // { tr, shown: () => bool }
   const wantTint = new Map(); // tr → has a what-if score
-  const tinted = new Map(); // tr → carries the tint now
+  const tinted = new Map(); // tr → the accent its bar is drawn in now ('' for none)
+  const wantStrike = new Map(); // tr → its item is dropped
+  const struckOn = new Map(); // tr → carries the strike-through now
   const resetters = []; // clear the what-if boxes on Reset
 
   // The right-hand column: a <td> of ours on every row of the table. Schoology
@@ -391,6 +435,7 @@ async function mountCourse({ doc, root: scope, courseId }) {
     const reset = el('button', 'linkbtn', 'Reset');
     reset.addEventListener('click', () => {
       whatIf.clear();
+      dropped.clear();
       for (const p of plans.values()) if (p) p.score = null;
       for (const f of resetters) f();
       update();
@@ -461,52 +506,134 @@ async function mountCourse({ doc, root: scope, courseId }) {
 
     for (const it of cat.items) {
       const tr = it.src.el;
+
       if (it.earned != null) {
-        updates.push(() => cell(tr, impTag(impact(course, it.id, { weights: weights() }), 'Course grade with this item minus without it')));
+        // A percent beside Schoology's score, and — hover/focus-revealed, so
+        // the row stays quiet otherwise — "edit" (a what-if override; Schoology
+        // Plus lets you edit any grade) and "drop" (excluded from the math).
+        const { host, root } = inline(gradeCell(tr), 'np-grade-pct');
+        const pctSpan = el('span', 'pct');
+        const editBtn = el('button', 'linkbtn reveal', 'edit');
+        const dropBtn = el('button', 'linkbtn reveal', 'drop');
+        const score = input('number', 'wi-score', `What-if score for ${it.title}`, 'what if');
+        const editWrap = el('span', 'wrap');
+        editWrap.append(score, '/', el('span', 'mono', String(it.possible)));
+        root.append(pctSpan, editBtn, dropBtn, editWrap);
+
+        let editing = false;
+        editBtn.addEventListener('click', () => {
+          editing = true;
+          score.value = String(it.earned);
+          update();
+          score.focus();
+          score.select();
+        });
+        dropBtn.addEventListener('click', () => { dropped.add(it.id); update(); });
+        const undo = el('button', 'linkbtn', 'undo');
+        undo.addEventListener('click', () => { dropped.delete(it.id); update(); });
+        const restore = () => { score.value = ''; whatIf.delete(it.id); editing = false; score.blur(); update(); };
+        score.addEventListener('input', () => {
+          const earned = num(score.value);
+          if (earned == null) whatIf.delete(it.id); else whatIf.set(it.id, { earned, possible: it.possible });
+          update();
+        });
+        score.addEventListener('keydown', (e) => { if (e.key === 'Escape') restore(); });
+        score.addEventListener('blur', () => onEditorBlur(root, [score], () => { editing = false; update(); }));
+        resetters.push(() => { score.value = ''; editing = false; });
+
+        updates.push(() => {
+          const isDropped = dropped.has(it.id);
+          strike(tr, isDropped);
+          host.hidden = isDropped;
+          if (isDropped) {
+            tint(tr, false);
+            const span = el('span', 'note');
+            span.append('dropped · ', undo);
+            return cell(tr, span);
+          }
+          const wi = whatIf.get(it.id);
+          const showInput = editing || wi != null;
+          const val = wi && wi.earned != null ? wi.earned : it.earned;
+          const pct = it.possible > 0 ? (val / it.possible) * 100 : null;
+          pctSpan.hidden = !getSettings().percent;
+          pctSpan.textContent = pct == null ? '' : pctText(pct);
+          editBtn.hidden = showInput;
+          dropBtn.hidden = showInput;
+          editWrap.hidden = !showInput;
+          tint(tr, wi != null);
+          // Untouched rows keep the impact as it really is; a row we've
+          // overridden shows its impact under everything else set right now.
+          const impactOpts = wi != null ? opts() : { weights: weights(), drop: [...dropped] };
+          cell(tr, impTag(impact(course, it.id, impactOpts), 'Course grade with this item minus without it'));
+        });
         continue;
       }
+
       const { root } = inline(gradeCell(tr), 'np-grade-whatif');
+      const btn = el('button', 'linkbtn reveal', 'what if');
       const score = input('number', 'wi-score', `What-if score for ${it.title}`, 'what if');
       const wrap = el('span', 'wrap');
       wrap.append(score, '/');
       let pts = null;
       if (it.possible != null) wrap.append(el('span', 'mono', String(it.possible)));
       else { pts = input('number', 'wi-pts', `Points ${it.title} is out of`, 'pts'); wrap.append(pts); }
-      root.append(wrap);
+      root.append(btn, wrap);
+      let editing = false;
+      btn.addEventListener('click', () => { editing = true; update(); score.focus(); });
       const read = () => {
         const earned = num(score.value), possible = pts ? num(pts.value) : it.possible;
         if (earned == null && possible == null) whatIf.delete(it.id); else whatIf.set(it.id, { earned, possible });
         update();
       };
+      const restore = () => { score.value = ''; if (pts) pts.value = ''; whatIf.delete(it.id); editing = false; score.blur(); update(); };
+      const fields = [score, pts].filter(Boolean);
+      const onBlur = () => onEditorBlur(root, fields, () => { editing = false; update(); });
       score.addEventListener('input', read);
       pts?.addEventListener('input', read);
-      resetters.push(() => { score.value = ''; if (pts) pts.value = ''; });
+      score.addEventListener('keydown', (e) => { if (e.key === 'Escape') restore(); });
+      pts?.addEventListener('keydown', (e) => { if (e.key === 'Escape') restore(); });
+      score.addEventListener('blur', onBlur);
+      pts?.addEventListener('blur', onBlur);
+      resetters.push(() => { score.value = ''; if (pts) pts.value = ''; editing = false; });
       updates.push(() => {
         const v = whatIf.get(it.id);
-        tint(tr, !!(v && v.earned != null && v.possible > 0));
+        const has = !!(v && v.earned != null && v.possible > 0);
+        tint(tr, has);
+        const showInput = editing || has;
+        btn.hidden = showInput;
+        wrap.hidden = !showInput;
         cell(tr);
       });
     }
 
-    // The planning row goes after the category's last row of items.
+    // The planning row goes after the category's last row of items, but only
+    // exists (is `shown`) while a plan for this category is actually open —
+    // opening it is a faint "+ plan" button in the category's own row instead
+    // of an always-there row, per-category, hover/focus-revealed like the
+    // what-if button.
     const last = cat.items.length ? cat.items[cat.items.length - 1].src.el : ctr;
     const lead = cat.items.length ? cat.items[0].src.el : ctr;
-    const plan = ourRow(last, () => isShown(lead), cat.items.length ? lead : ctr);
+    const plan = ourRow(last, () => isShown(lead) && !!plans.get(cat.title), cat.items.length ? lead : ctr);
     plans.set(cat.title, null);
     const kind = /test|quiz|exam|assess/i.test(cat.title) ? 'test' : 'assignment';
+
+    const { root: planBtnRoot } = inline(titleCell(ctr), 'np-grade-plan');
+    const planBtn = el('button', 'linkbtn reveal', '+ plan');
+    planBtn.title = `Plan an upcoming ${kind}`;
+    planBtnRoot.append(planBtn);
+    planBtn.addEventListener('click', () => {
+      plans.set(cat.title, { name: '', possible: kind === 'test' ? 50 : 10, score: null });
+      drawPlan();
+      update();
+      plan.root.querySelector('input')?.focus();
+    });
+
     let need = null;
     const drawPlan = () => {
       const p = plans.get(cat.title);
       if (!p) {
-        const b = el('button', 'linkbtn', `+ Plan an upcoming ${kind}`);
-        b.addEventListener('click', () => {
-          plans.set(cat.title, { name: '', possible: kind === 'test' ? 50 : 10, score: null });
-          drawPlan();
-          update();
-          plan.root.querySelector('input')?.focus();
-        });
         need = null;
-        return plan.root.replaceChildren(plan.root.firstChild, b);
+        return plan.root.replaceChildren(plan.root.firstChild);
       }
       const box = el('div', 'hypo');
       const name = input('text', null, `Upcoming ${kind} name`, 'name');
@@ -527,6 +654,7 @@ async function mountCourse({ doc, root: scope, courseId }) {
     drawPlan();
     updates.push(() => {
       const p = plans.get(cat.title);
+      planBtn.hidden = !!p;
       if (!p || !need) return;
       if (!(p.possible > 0)) return need.replaceChildren();
       const r = needFor(course, { category: cat.title, possible: p.possible }, opts(cat.title));
@@ -536,14 +664,31 @@ async function mountCourse({ doc, root: scope, courseId }) {
     });
   }
 
-  // A row with a what-if score gets --accent-soft, on Schoology's own cells,
-  // only while the overlay is on.
+  // A row with a what-if score gets a thin inset left bar on its first cell,
+  // on Schoology's own row, only while the overlay is on.
   function tint(tr, on) {
     wantTint.set(tr, on);
     const want = on && isOverlayOn();
-    if (!!tinted.get(tr) === want) return;
-    tinted.set(tr, want);
-    for (const c of tr.children) if (c.localName === 'td' || c.localName === 'th') c.style.backgroundColor = want ? '#E7EFF8' : '';
+    // Keyed by the theme's accent too, so a theme change repaints the bar.
+    const t = THEMES[getSettings().theme] || THEMES.schoology;
+    const accent = paint(t.accent, t.dark);
+    const now = want ? accent : '';
+    if ((tinted.get(tr) || '') === now) return;
+    tinted.set(tr, now);
+    const first = tr.children[0];
+    if (first) first.style.boxShadow = now ? `inset 3px 0 0 ${accent}` : '';
+  }
+
+  // A dropped item's own Schoology score, struck through and faded — reverted
+  // on undrop or when the overlay switches off, same pattern as tint().
+  function strike(tr, on) {
+    wantStrike.set(tr, on);
+    const want = on && isOverlayOn();
+    if (!!struckOn.get(tr) === want) return;
+    struckOn.set(tr, want);
+    const gc = gradeCell(tr);
+    gc.style.textDecoration = want ? 'line-through' : '';
+    gc.style.opacity = want ? '.5' : '';
   }
 
   // Our own rows follow the overlay switch and Schoology's collapsing.
@@ -566,10 +711,14 @@ async function mountCourse({ doc, root: scope, courseId }) {
   new MutationObserver(debounce(syncRows, 60)).observe(table, { attributes: true, attributeFilter: ['class', 'style'], subtree: true });
   onOverlay(() => {
     for (const [tr, on] of wantTint) tint(tr, on);
+    for (const [tr, on] of wantStrike) strike(tr, on);
     syncRows();
   });
+  onSettings(() => update());
   update();
-  return { update, whatIf, plans };
+  return {
+    update, whatIf, plans, dropped,
+  };
 }
 
 if (typeof chrome !== 'undefined' && chrome.runtime?.id && typeof location !== 'undefined' && !globalThis.__npNoAutoStart) start();
