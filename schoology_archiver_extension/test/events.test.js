@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseEventsJson } from '../reader/parse/sync.js';
+import { parseEventsJson, nextEventsUrl } from '../reader/parse/sync.js';
 
 const H = 'https://x.schoology.com';
 const JSON_LD = {
@@ -20,10 +20,18 @@ const JSON_LD = {
   ],
 };
 
-test('events JSON: assignments and newer quizzes, with their course and section', () => {
+test('events JSON: assignments and newer quizzes, with their course, section and url', () => {
   assert.deepEqual(parseEventsJson(JSON.stringify(JSON_LD)), [
-    { schoology_id: '101', title: 'Lab 9.1 Fibonacci', course: 'AP Comp Sci A - 2350', section_id: '11', due: '2026-09-28T06:59:00Z', graded: false },
-    { schoology_id: '202', title: 'Interro de vocabulaire 1.2', course: 'French 2 - 4120', section_id: '12', due: null, graded: true },
+    { schoology_id: '101', title: 'Lab 9.1 Fibonacci', course: 'AP Comp Sci A - 2350', section_id: '11', due: '2026-09-28T06:59:00Z', graded: false, url: '/assignment/101' },
+    { schoology_id: '202', title: 'Interro de vocabulaire 1.2', course: 'French 2 - 4120', section_id: '12', due: null, graded: true, url: '/course/12/assessments/202' },
   ]);
   assert.deepEqual(parseEventsJson('not json'), []);
+});
+
+test('nextEventsUrl: the @links.next of a paginated list, in either shape', () => {
+  assert.equal(nextEventsUrl(JSON.stringify({ '@links': { next: '/v2/events/overdue?start=25' } })), '/v2/events/overdue?start=25');
+  assert.equal(nextEventsUrl(JSON.stringify({ '@links': { next: { '@id': 'https://x.schoology.com/v2/events/overdue?start=25' } } })), 'https://x.schoology.com/v2/events/overdue?start=25');
+  assert.equal(nextEventsUrl(JSON.stringify({ '@links': {} })), null);
+  assert.equal(nextEventsUrl(JSON.stringify(JSON_LD)), null);
+  assert.equal(nextEventsUrl('not json'), null);
 });

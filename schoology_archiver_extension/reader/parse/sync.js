@@ -195,11 +195,12 @@ const ASSESSMENT_URL_RE = /\/course\/\d+\/assessments\/(\d+)(?:[/?#]|$)/;
 const lastId = (u) => (String(u || '').match(/(\d+)\/?$/) || [])[1] || null;
 
 /**
- * /v2/events/{list} JSON → [{ schoology_id, title, course, section_id, due, graded }].
- * What links to /assignment/{id}, and newer quizzes, which link to
- * /course/{c}/assessments/{id}: the same id the To Do column links as
+ * /v2/events/{list} JSON → [{ schoology_id, title, course, section_id, due,
+ * graded, url }]. What links to /assignment/{id}, and newer quizzes, which
+ * link to /course/{c}/assessments/{id}: the same id the To Do column links as
  * /assignment/{id} (seen 2026-09-26). `course` is the course's title, as the
- * row says it.
+ * row says it. `url` is the path to open the item at (an assignment or an
+ * assessment keep their own shape; the To Do sidebar links each item there).
  */
 export function parseEventsJson(textOrObj) {
   const j = asJson(textOrObj);
@@ -208,12 +209,15 @@ export function parseEventsJson(textOrObj) {
   const out = [];
   const seen = new Set();
   for (const e of extra) {
-    const m = String(e?.url || '').match(ASSIGNMENT_RE) || String(e?.url || '').match(ASSESSMENT_URL_RE);
+    const raw = String(e?.url || '');
+    const m = raw.match(ASSIGNMENT_RE) || raw.match(ASSESSMENT_URL_RE);
     if (!m || seen.has(m[1])) continue;
     seen.add(m[1]);
     const sectionRef = e['@links']?.parent?.['@id'] || null;
     const section = byId.get(sectionRef);
     const course = byId.get(section?.['@links']?.course?.['@id']); // an assignment's section links its course as `course`
+    let url = raw;
+    try { url = new URL(raw, 'https://x.schoology.com').pathname; } catch { /* leave the raw string */ }
     out.push({
       schoology_id: m[1],
       title: squash(e.title),
@@ -221,9 +225,23 @@ export function parseEventsJson(textOrObj) {
       section_id: lastId(sectionRef),
       due: e.dueDateInUTCISO || null,
       graded: e.studentGrade?.grade != null, // the row shows the grade itself
+      url,
     });
   }
   return out;
+}
+
+/**
+ * The next page's url from a /v2/events/{list} response, or null on the last
+ * page. Schoology (like its other v2 list endpoints) links it at
+ * `@links.next`, absolute or relative; either is passed straight to fetch.
+ */
+export function nextEventsUrl(textOrObj) {
+  const j = asJson(textOrObj);
+  const next = j?.['@links']?.next;
+  if (!next) return null;
+  if (typeof next === 'string') return next;
+  return next['@id'] || next.url || null;
 }
 
 const CARD = '.mfe-sgy-assignments-detail-view-assignment-details';

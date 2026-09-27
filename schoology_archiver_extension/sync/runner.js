@@ -5,6 +5,7 @@
 import { SchoologyClient } from '../reader/client.js';
 import { handleNeoplan } from '../outputs/neoplan/api.js';
 import { runSync, KEY_SNAPSHOT, submittedPayload } from './sync.js';
+import { limiter, persistPausedUntil } from './limiter.js';
 
 export const SYNC_LOCK_ID = 'sync';
 export const KEY_HOST = 'schoologyHost';
@@ -64,7 +65,16 @@ export function requestSync({ isArchiveRunning, parse = offscreenParse, np = han
     controller = new AbortController();
     const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo?.().catch?.(() => {}); }, 20_000);
     try {
-      const client = new SchoologyClient({ host: await schoologyHost(), log: () => {}, signal: controller.signal });
+      const client = new SchoologyClient({
+        host: await schoologyHost(),
+        log: () => {},
+        signal: controller.signal,
+        // The SW can't sendMessage to itself, so the sync's client uses the
+        // shared limiter directly (same instance background.js answers
+        // schoologySlot/schoologyRateLimited with).
+        acquire: (s) => limiter.acquire(s),
+        onRateLimited: () => { limiter.pause(); persistPausedUntil(); },
+      });
       return await runSync({
         client,
         parse,

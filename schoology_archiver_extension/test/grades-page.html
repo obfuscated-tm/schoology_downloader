@@ -3,7 +3,8 @@
      with the markup docs/schoology-endpoints.md and Schoology Plus rely on, to
      look at overlays/grades.js outside Schoology. Serve schoology_archiver_extension/
      (python3 -m http.server) and open /test/grades-page.html. ?noweights drops the
-     (N%) so the weight boxes show. -->
+     (N%) so the weight boxes show. ?all is /grades/grades instead: two
+     courses, each collapsed until its title is clicked. -->
 <html><head><meta charset="utf-8"><title>Grades stand-in</title>
 <style>
 body { font: 13px Arial, sans-serif; color: #333; background: #fff; margin: 24px; }
@@ -12,18 +13,37 @@ th, td { padding: 7px 8px; border-bottom: 1px solid #e3e3e3; text-align: left; f
 tr.course-row th, tr.course-row td, tr.period-row th, tr.period-row td { font-weight: bold; background: #fafafa; }
 tr.category-row th, tr.category-row td { background: #f1f1f1; font-weight: bold; }
 tr.item-row th { padding-left: 28px; }
+.gradebook-course-title a { display: block; padding: 10px 0; font-size: 15px; color: #1a4c8e; text-decoration: none; }
 .due-date { display: block; color: #777; font-size: 11px; }
 .grade-column { white-space: nowrap; }
 .percentage-contrib { color: #777; margin-left: 4px; }
 .visually-hidden { position: absolute; clip: rect(0 0 0 0); width: 1px; height: 1px; overflow: hidden; }
 .hidden { display: none; }
 </style></head>
-<body><h2>AP Comp Sci A: McLeodT p2 T1</h2>
-<div class="gradebook-course"><div class="gradebook-course-grades"><table><tbody id="gb"></tbody></table></div></div>
+<body><h2 id="h">AP Comp Sci A: McLeodT p2 T1</h2>
+<div class="s-grades-course-list" id="list"></div>
 <script type="module">
-const WEIGHTS = new URLSearchParams(location.search).has('noweights') ? {} : { 'Labs & Homework': 25, 'Tests & Quizzes': 75 };
+const q = new URLSearchParams(location.search), ALL = q.has('all');
+const WEIGHTS = q.has('noweights') ? {} : { 'Labs & Homework': 25, 'Tests & Quizzes': 75 };
 const md = await (await fetch('./fixtures/apcs-grades.md')).text();
-const tb = document.getElementById('gb');
+if (ALL) document.getElementById('h').textContent = 'Grades';
+// /grades/grades: each course a .gradebook-course, its grades hidden until
+// its title is clicked, and its Course Grade row display: none.
+const courses = ALL ? [['8465375857', 'AP Comp Sci A - 2350: McLeodT p2 T1'], ['8465370000', 'AP Comp Sci A, again']] : [['8465375857', '']];
+for (const [courseId, name] of courses) {
+const item = document.createElement('div');
+item.className = 's-grades-course-item';
+item.innerHTML = `<div class="gradebook-course" id="s-js-gradebook-course-${courseId}">`
+  + (ALL ? `<div class="gradebook-course-title"><a href="#" role="button" aria-expanded="false">${name}</a></div>` : '')
+  + `<div class="gradebook-course-grades"${ALL ? ' style="display: none"' : ''}><table><tbody></tbody></table></div></div>`;
+document.getElementById('list').append(item);
+item.querySelector('.gradebook-course-title a')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  const g = item.querySelector('.gradebook-course-grades'), open = g.style.display === 'none';
+  g.style.display = open ? 'block' : 'none';
+  e.currentTarget.setAttribute('aria-expanded', String(open));
+});
+const tb = item.querySelector('tbody');
 let n = 0, period = null, cat = null, hidePeriod = false;
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 for (const line of md.split('\n')) {
@@ -42,18 +62,20 @@ for (const line of md.split('\n')) {
   const due = m[2].trim() ? `<span class="due-date">${m[2].trim()}</span>` : '';
   const tr = document.createElement('tr');
   tr.className = `report-row ${level}-row${hidePeriod && level !== 'period' ? ' hidden' : ''}`;
+  if (ALL && level === 'course') tr.style.display = 'none';
   tr.dataset.id = id; if (parent) tr.dataset.parentId = parent;
   tr.innerHTML = `<th scope="row" class="title-column"><div class="td-content-wrapper"><span class="title">${esc(title)}${level === 'category' ? '<span class="visually-hidden">Category</span>' : ''}</span>${contrib}${due}</div></th>`
     + `<td class="grade-column"><div class="td-content-wrapper">${gradeHtml}</div></td><td class="comment-column"><div class="td-content-wrapper"><span class="visually-hidden">No comment</span></div></td>`;
   tb.append(tr);
   n++;
 }
+}
 // Schoology collapses a category when its row is clicked.
-tb.addEventListener('click', (e) => {
+document.addEventListener('click', (e) => {
   const tr = e.target.closest('tr.category-row'); if (!tr) return;
-  for (const r of tb.querySelectorAll(`tr[data-parent-id="${tr.dataset.id}"]`)) r.classList.toggle('hidden');
+  for (const r of tr.parentElement.querySelectorAll(`tr[data-parent-id="${tr.dataset.id}"]`)) r.classList.toggle('hidden');
 });
 globalThis.__npNoAutoStart = true;
 const { start } = await import('../overlays/grades.js');
-window.overlay = await start({ loc: { pathname: '/course/8465375857/student_grades' } });
+window.overlay = await start({ loc: { pathname: ALL ? '/grades/grades' : '/course/8465375857/student_grades' } });
 </script></body></html>

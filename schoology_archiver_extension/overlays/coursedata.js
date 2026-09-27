@@ -17,12 +17,12 @@ import { materialRowsIn, folderRowsIn, isLoginPage } from '../reader/parse/sync.
 import { parseFolderRows } from '../reader/parse/materials.js';
 import { parseGrades } from '../reader/parse/grades.js';
 import { parseScore } from './grademath.js';
+import { limitedFetch } from '../reader/ratelimit.js';
 
 export const ROOT = 'root';
 const CACHE_KEY = 'materialsCache'; // { [section]: { grades: { at, rows }, folders: { [fid]: folder }, used } }
 const CACHE_MS = 10 * 60_000;
 const CACHE_SECTIONS = 8;
-const GAP_MS = 400; // one Schoology page every ~0.4s, as the reader does
 const MAX_FOLDERS = 80;
 const WEIGHTS_KEY = 'gradeWeights'; // { [course id]: { [category title]: percent } }
 
@@ -35,7 +35,7 @@ export function chromeStore() {
 }
 
 export async function fetchDoc(url) {
-  const r = await fetch(url, { credentials: 'include' });
+  const r = await limitedFetch(url, { credentials: 'include' });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   if (new URL(r.url).pathname.startsWith('/login')) throw new Error('login');
   const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
@@ -43,7 +43,6 @@ export async function fetchDoc(url) {
   return doc;
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ASSIGNMENT_RE = /\/assignment\/(\d+)(?:[/?#]|$)/;
 const ASSESSMENT_RE = /\/assessments\/(\d+)(?:[/?#]|$)/;
 
@@ -133,11 +132,11 @@ export async function openCourse({ section, origin, store = chromeStore(), getDo
     onChange();
   }
 
-  let reads = 0;
   /** Read a folder not in the tree yet (`fresh`: read it again anyway). */
   async function readFolder(fid, { fresh: again = false } = {}) {
     if (tree[fid] && !again) return true;
-    if (reads++) await sleep(GAP_MS);
+    // No sleep here: fetchDoc → limitedFetch paces every read through the
+    // shared extension-wide limiter now, not this course reader's own gap.
     try {
       tree[fid] = { at: now(), ...folderOf(await getDoc(folderUrl(fid)), folderUrl(fid)) };
     } catch { return false; }

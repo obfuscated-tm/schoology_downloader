@@ -12,7 +12,7 @@
   if (/^\/assignment\/\d+(\/info)?\/?$/.test(p)) page = 'assignment';
   else if (/^\/home(\/assignments)?\/?$/.test(p)) page = 'home';
   else if (/^\/course\/\d+(\/(materials|updates))?\/?$/.test(p)) page = 'course';
-  else if (/^\/course\/\d+\/student_grades\/?$/.test(p)) page = 'grades';
+  else if (/^\/course\/\d+\/student_grades\/?$/.test(p) || /^\/grades\/grades\/?$/.test(p)) page = 'grades';
   if (page) load(page);
 
   // The neo-plan button: everywhere but assignments and tests.

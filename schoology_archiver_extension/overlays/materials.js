@@ -166,6 +166,7 @@ export async function start({
       busy: busy.has(id),
       onAdd: () => add(id),
       onRestore: () => change(id, () => call('restore', { id: it?.id })),
+      onToggle: () => toggle(id),
     });
     const err = errors.get(id);
     if (err) kids.push(el('span', 'bad', err));
@@ -265,6 +266,19 @@ export async function start({
         source_url: `${loc.origin}/assignment/${id}`,
       },
     }));
+  }
+
+  // Studied / done, or back: shown at once, put back if neo-plan refuses.
+  function toggle(id) {
+    const it = known.get(id);
+    if (!it || busy.has(id)) return;
+    const work = it.work === 'ready' ? 'todo' : 'ready';
+    known.set(id, { ...it, work });
+    return change(id, async () => {
+      const r = await call('work', { id: it.id, work });
+      if (!r.ok) known.set(id, it);
+      return r;
+    });
   }
 
   // ── Reading ──

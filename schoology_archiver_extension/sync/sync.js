@@ -22,9 +22,11 @@
 //   storage chrome.storage.local-like { get, set }
 
 import { LoginError, isQuizTakingUrl } from '../reader/client.js';
+import { RateLimitError } from '../reader/ratelimit.js';
 import { sectionsByRealm, realmKey, isAssessmentUrl } from '../reader/parse/sync.js';
 
-export const STATUS_CAP = 40;
+export const STATUS_CAP = 10;
+const STATUS_MIN_AGE_MS = 30 * 60 * 1000; // an id checked more recently than this is left for next run
 export const KEY_SNAPSHOT = 'syncSnapshot';
 export const KEY_CHECKED = 'syncStatusChecked'; // { schoology_id: last checked ms }
 const SECTION_MEMORY = 3000; // assignment → section pairs kept for submit detection
@@ -40,11 +42,17 @@ class NeoplanError extends Error {
 
 const ID_RE = /^\d{1,20}$/;
 
-/** Open ids, least recently checked first, at most `cap`. Pure. */
-export function pickForStatus(openIds, checked, cap = STATUS_CAP) {
+/**
+ * Open ids, least recently checked first, at most `cap`. An id checked less
+ * than `minAgeMs` ago is not picked at all — it's still fresh, so this run
+ * leaves it for the next one. Never-checked ids (no `checked[id]`) always
+ * come first. Pure.
+ */
+export function pickForStatus(openIds, checked, cap = STATUS_CAP, minAgeMs = STATUS_MIN_AGE_MS, now = Date.now()) {
   const ids = [...new Set((openIds || []).map(String).filter((x) => ID_RE.test(x)))];
   return ids
     .map((id, i) => ({ id, i, t: Number(checked?.[id]) || 0 }))
+    .filter((x) => x.t === 0 || now - x.t >= minAgeMs)
     .sort((a, b) => a.t - b.t || a.i - b.i)
     .slice(0, cap)
     .map((x) => x.id);
@@ -58,7 +66,7 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
     at: fetchedAt,
     finished_at: null,
     ok: false,
-    error: null, // null | 'login' | 'token' | 'neoplan' | 'schoology' | 'stopped'
+    error: null, // null | 'login' | 'token' | 'neoplan' | 'schoology' | 'ratelimit' | 'stopped'
     mode: null,
     counts: { courses: 0, upcoming: 0, overdue: 0, events: 0, gradebooks: 0, gradebook_rows: 0, missing: 0, open: 0, checked: 0, submitted: 0, redirected: 0, items: 0 },
     requests: { schoology: 0, neoplan: 0 },
@@ -151,7 +159,7 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
           if (g.missing === true) { row.missing++; snap.counts.missing++; }
         }
       } catch (e) {
-        if (e instanceof LoginError || e?.name === 'StoppedError' || e?.name === 'AbortError') throw e;
+        if (e instanceof LoginError || e instanceof RateLimitError || e?.name === 'StoppedError' || e?.name === 'AbortError') throw e;
         row.gradebook = 'error';
         snap.errors.push(`gradebook ${c.section_id}: ${e.message || e}`);
       }
@@ -160,15 +168,15 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
     // 6. Submission status, only for what neo-plan still has open, oldest-checked first.
     const open = (await npCall('open'))?.assignments || [];
     snap.counts.open = open.length;
-    const pick = pickForStatus(open, stored, STATUS_CAP);
     const nowMs = started.getTime();
+    const pick = pickForStatus(open, stored, STATUS_CAP, STATUS_MIN_AGE_MS, nowMs);
     for (const id of pick) {
       let st;
       try {
         const r = await get(`/assignment/${id}/info`, 'status', { noRedirect: true });
         st = r.redirected ? { state: 'unknown', redirected: true } : r.data;
       } catch (e) {
-        if (e instanceof LoginError || e?.name === 'StoppedError' || e?.name === 'AbortError') throw e;
+        if (e instanceof LoginError || e instanceof RateLimitError || e?.name === 'StoppedError' || e?.name === 'AbortError') throw e;
         snap.errors.push(`status ${id}: ${e.message || e}`);
         continue;
       } finally {
@@ -208,6 +216,7 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
     if (e instanceof LoginError) snap.error = 'login';
     else if (e instanceof NeoplanError) snap.error = e.code;
     else if (e?.name === 'StoppedError' || e?.name === 'AbortError') snap.error = 'stopped';
+    else if (e instanceof RateLimitError) snap.error = 'ratelimit';
     else snap.error = 'schoology';
     snap.errors.push(String(e?.message || e));
     log(`sync stopped: ${e?.message || e}`);

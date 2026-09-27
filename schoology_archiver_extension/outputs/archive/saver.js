@@ -1,4 +1,7 @@
 import { splitExt, today, StoppedError, throwIfStopped } from '../../util.js';
+import { acquireSlot, isRateLimited, reportRateLimited, RateLimitError } from '../../reader/ratelimit.js';
+
+const isSchoologyHost = (url) => { try { return /\.schoology\.com$/i.test(new URL(url).host); } catch { return false; } };
 
 export const ARCHIVE_ROOT = 'Schoology Archive';
 
@@ -83,6 +86,46 @@ export class Saver {
     return path;
   }
 
+  // A skipped item's (or a skipped dropbox revision's) detail pages weren't
+  // reopened, but its files are still here: mark every manifest.files slot
+  // under `prefix` seen this run (so finish() won't call it removed) and
+  // count it as unchanged, same as save() does for a slot whose fingerprint
+  // didn't move. Returns the kept slots' records, for a caller that needs to
+  // rebuild a link to the file it already has.
+  keepSlots(prefix) {
+    const kept = [];
+    for (const [slot, rec] of Object.entries(this.manifest.files)) {
+      if (slot !== prefix && !slot.startsWith(prefix)) continue;
+      rec.lastSeen = this.manifest.currentRun;
+      this.claimedThisRun.add(rec.path.toLowerCase());
+      kept.push(rec);
+    }
+    this.stats.unchanged += kept.length;
+    return kept;
+  }
+
+  keepItem(key) {
+    return this.keepSlots(`${key}#`).length;
+  }
+
+  // Any manifest.files slot already saved under this prefix (e.g. a dropbox
+  // revision's files), without needing to reopen the page that lists them.
+  hasSlots(prefix) {
+    return Object.keys(this.manifest.files).some((s) => s.startsWith(prefix));
+  }
+
+  // Every file saved under `prefix` is still on disk (a local check, no
+  // Schoology request). A skip must not leave a deleted archive, or a newly
+  // chosen folder, missing the files it would otherwise have re-saved.
+  async slotsPresent(prefix) {
+    if (this.redownloadAll) return false;
+    for (const [slot, rec] of Object.entries(this.manifest.files)) {
+      if (slot !== prefix && !slot.startsWith(prefix)) continue;
+      if (!(await this.writer.exists(rec.path, rec))) return false;
+    }
+    return true;
+  }
+
   async saveText(slot, relPath, text, fingerprint) {
     return this.save({
       slot, relPath, fingerprint, versioned: false, allowHtml: true,
@@ -143,8 +186,10 @@ export class FolderWriter {
     throwIfStopped(this.signal);
     let body = src.blob;
     if (!body) {
+      const schoology = isSchoologyHost(src.url);
       let r;
       try {
+        if (schoology) await acquireSlot(this.signal);
         r = await fetch(src.url, { credentials: 'include', signal: this.signal });
       } catch (e) {
         throwIfStopped(this.signal);
@@ -158,7 +203,17 @@ export class FolderWriter {
         throw e;
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      if (!allowHtml && /text\/html/i.test(r.headers.get('content-type') || '')) throw notAFileError();
+      const ct = r.headers.get('content-type') || '';
+      // Schoology's rate-limit page can come back as a plain 200 HTML page,
+      // indistinguishable from a real file by status/content-type alone, so
+      // peek at a clone's text rather than read the body meant for the file.
+      if (schoology && (r.status === 429 || /text\/html/i.test(ct))) {
+        if (isRateLimited(r.status, await r.clone().text())) {
+          reportRateLimited();
+          throw new RateLimitError();
+        }
+      }
+      if (!allowHtml && /text\/html/i.test(ct)) throw notAFileError();
       body = r;
     }
 
@@ -219,6 +274,7 @@ export class DownloadsWriter {
       }
     }, 4000);
     try {
+      if (isSchoologyHost(url)) await acquireSlot(this.signal);
       const item = await downloadAndWait({
         url,
         filename: `${this.base}/${relPath}`,

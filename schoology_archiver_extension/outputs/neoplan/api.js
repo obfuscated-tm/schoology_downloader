@@ -32,6 +32,11 @@ export function validToken(token) {
   return /^np_\S{8,}$/.test(token);
 }
 
+/** The two work values the marker toggles between. Pure — background.js's content-script gate uses it too. */
+export function isWorkValue(work) {
+  return work === 'todo' || work === 'ready';
+}
+
 /**
  * The request for one API op, as data — pure, so it can be tested without
  * Chrome. Returns null for an op that is not an API call.
@@ -44,7 +49,7 @@ export function buildRequest(server, token, msg) {
     case 'today':
       return { url: `${base}/today`, init: { method: 'GET', headers } };
     case 'work':
-      if (msg.work !== 'todo' && msg.work !== 'ready') throw new Error(`bad work value: ${msg.work}`);
+      if (!isWorkValue(msg.work)) throw new Error(`bad work value: ${msg.work}`);
       return {
         url: item('work'),
         init: { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ work: msg.work }) },

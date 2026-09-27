@@ -16,7 +16,11 @@ export function parseGrades(root, { els = false } = {}) {
     const titleEl = th?.querySelector('.title') || th;
     const title = cleanText(titleEl).replace(/\s*(assignment|assessment|discussion)$/i, '');
     const due = cleanText(th?.querySelector('.due-date'));
-    const grade = cleanText(tr.querySelector('.grade-column')).replace(/\s+/g, ' ');
+    // A rubric-graded item's cell repeats its score in the rubric button,
+    // "4.6" then "4.6 / 5" with no space between: read it without the button.
+    const gradeCell = tr.querySelector('.grade-column')?.cloneNode(true);
+    gradeCell?.querySelectorAll('.s-grades-rubric-grading-launch-btn').forEach((n) => n.remove());
+    const grade = cleanText(gradeCell).replace(/\s+/g, ' ');
     const comment = cleanText(tr.querySelector('.comment-column'));
     const row = { level, title: due ? title.replace(due, '').trim() : title, due, grade, comment };
     // A category's weight is a sibling of .title in the title cell:

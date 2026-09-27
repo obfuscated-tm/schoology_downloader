@@ -1,6 +1,5 @@
 import { sleep, throwIfStopped } from '../util.js';
-
-const REQUEST_GAP_MS = 400; // be polite: one Schoology page every ~0.4s
+import { acquireSlot, reportRateLimited, isRateLimited, RateLimitError } from './ratelimit.js';
 
 export class LoginError extends Error {
   constructor() { super('Not logged in to Schoology in this browser'); }
@@ -11,7 +10,7 @@ export class LoginError extends Error {
 // login cookie that way, it falls back to fetching from inside an open
 // Schoology tab (same-origin, always has your session).
 export class SchoologyClient {
-  constructor({ host, tabId, log, signal }) {
+  constructor({ host, tabId, log, signal, acquire = acquireSlot, onRateLimited = reportRateLimited }) {
     this.signal = signal;
     this.host = host;
     this.origin = `https://${host}`;
@@ -19,6 +18,8 @@ export class SchoologyClient {
     this.log = log;
     this.mode = 'direct';
     this.lastRequest = 0;
+    this.acquire = acquire; // shared rate limit slot, not just this client's own gap
+    this.onRateLimited = onRateLimited;
   }
 
   abs(u) { return new URL(u, this.origin).href; }
@@ -55,29 +56,32 @@ export class SchoologyClient {
 
   // noRedirect: a redirect is reported ({ redirected: true }) and never
   // followed, so the page it points at is not requested at all.
-  async raw(url, noRedirect = false) {
+  // headers: extra request headers (e.g. Accept: application/json for the
+  // /v2/events endpoints); applied the same way in direct and tab mode.
+  async raw(url, noRedirect = false, headers) {
     const redirect = noRedirect ? 'manual' : 'follow';
     if (this.mode === 'direct') {
-      const r = await fetch(url, { credentials: 'include', signal: this.signal, redirect });
+      const r = await fetch(url, { credentials: 'include', signal: this.signal, redirect, headers });
       if (r.type === 'opaqueredirect') return { status: 0, url, text: '', redirected: true };
       return { status: r.status, url: r.url, text: await r.text() };
     }
     const [res] = await chrome.scripting.executeScript({
       target: { tabId: this.tabId },
-      func: async (u, redir) => {
-        const r = await fetch(u, { credentials: 'include', redirect: redir });
+      func: async (u, redir, hdrs) => {
+        const r = await fetch(u, { credentials: 'include', redirect: redir, headers: hdrs });
         if (r.type === 'opaqueredirect') return { status: 0, url: u, text: '', redirected: true };
         return { status: r.status, url: r.url, text: await r.text() };
       },
-      args: [url, redirect],
+      args: [url, redirect, headers],
     });
     if (!res || !res.result) throw new Error('Could not read page through the Schoology tab (was it closed?)');
     return res.result;
   }
 
+  // Kept as `throttle` so callers don't change; it's the shared limiter now,
+  // not a per-instance gap, so every part of the extension paces together.
   async throttle() {
-    const wait = this.lastRequest + REQUEST_GAP_MS - Date.now();
-    if (wait > 0) await sleep(wait, this.signal);
+    await this.acquire(this.signal);
     this.lastRequest = Date.now();
   }
 
@@ -89,7 +93,7 @@ export class SchoologyClient {
     return { doc, url: r.url };
   }
 
-  async getText(url, { noRedirect = false } = {}) {
+  async getText(url, { noRedirect = false, headers } = {}) {
     url = this.abs(url);
     if (isQuizTakingUrl(url)) throw new Error(`refused to open a quiz-taking page (${new URL(url).pathname})`);
     let lastErr;
@@ -98,7 +102,7 @@ export class SchoologyClient {
       await this.throttle();
       let r;
       try {
-        r = await this.raw(url, noRedirect);
+        r = await this.raw(url, noRedirect, headers);
       } catch (e) {
         throwIfStopped(this.signal);
         // A redirect to Google sign-in shows up as a CORS TypeError.
@@ -108,7 +112,15 @@ export class SchoologyClient {
         continue;
       }
       if (r.redirected) return { text: '', url, redirected: true };
-      if (r.status === 429 || r.status >= 500) {
+      // Schoology's own limit — a 429, or a 200 HTML page saying so (we
+      // don't know which it sends). Either way: never hand this back as
+      // real content, and let the shared limiter's pause wait it out.
+      if (isRateLimited(r.status, r.text)) {
+        lastErr = new RateLimitError();
+        this.onRateLimited();
+        continue;
+      }
+      if (r.status >= 500) {
         lastErr = new Error(`HTTP ${r.status}`);
         await sleep(3000 * (attempt + 1), this.signal);
         continue;

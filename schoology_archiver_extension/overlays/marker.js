@@ -33,6 +33,10 @@ export const MARK_CSS = `
 }
 .removed { color: var(--faint); }
 .linkbtn { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+/* A todo/ready state given onToggle draws as this button instead of a span: same
+   look (button chrome is already stripped in BASE_CSS), a subtle hover cue on
+   the words, and the shared :focus-visible ring. */
+button.st:hover > *:not(.circle) { text-decoration: underline; text-underline-offset: 2px; }
 `;
 
 function linkBtn(text, label, fn, disabled) {
@@ -43,38 +47,62 @@ function linkBtn(text, label, fn, disabled) {
   return b;
 }
 const circle = (exam) => { const c = el('span', exam ? 'circle sq' : 'circle'); c.setAttribute('aria-hidden', 'true'); return c; };
-/** A state: its shape (circle, or square for a test), then its words. */
-function st(cls, exam, ...words) {
-  const box = el('span', `st ${cls}`.trim());
+
+/**
+ * "Mark studied" / "Mark not studied" / "Mark done" / "Mark not done": the
+ * action a toggle button offers, from the state it's leaving. Pure.
+ */
+export function toggleLabel(kind, exam) {
+  if (kind === 'ready') return exam ? 'Mark not studied' : 'Mark not done';
+  return exam ? 'Mark studied' : 'Mark done';
+}
+
+/**
+ * A state: its shape (circle, or square for a test), then its words. A
+ * `toggle` ({ pressed, busy, label, onToggle }) makes it a real <button> —
+ * aria-pressed, aria-label, disabled while busy — instead of a plain span.
+ */
+function st(cls, exam, words, toggle) {
+  const box = el(toggle ? 'button' : 'span', `st ${cls}`.trim());
   box.append(circle(exam));
   for (const w of words) if (w) box.append(typeof w === 'string' ? el('span', null, w) : w);
+  if (toggle) {
+    box.setAttribute('aria-pressed', String(toggle.pressed));
+    box.setAttribute('aria-label', toggle.label);
+    box.disabled = toggle.busy;
+    onClick(box, toggle.onToggle);
+  }
   return box;
 }
 
 /**
  * s: rowState(). item: neo-plan's Item (for the due date). rowDue: the due
- * Schoology's row shows. → { kids: [nodes], label } (label for title/aria).
+ * Schoology's row shows. onToggle, when given, makes a todo/ready state's
+ * words a button that flips it (marks.js's toggle()) instead of plain text —
+ * missing/submitted/graded/removed/none never get one. → { kids: [nodes],
+ * label } (label for title/aria).
  */
-export function markerFor(s, { item, rowDue, busy = false, onAdd, onRestore } = {}) {
+export function markerFor(s, { item, rowDue, busy = false, onAdd, onRestore, onToggle } = {}) {
+  const toggleFor = (kind, exam) => onToggle && { pressed: kind === 'ready', busy, label: toggleLabel(kind, exam), onToggle };
   switch (s.kind) {
     case 'graded':
       return { kids: [el('span', 'num score', scoreText(s.earned, s.possible))], label: `Graded ${scoreText(s.earned, s.possible)}` };
     case 'submitted':
-      return { kids: [st('cleared', false, s.word)], label: s.word };
+      return { kids: [st('cleared', false, [s.word])], label: s.word };
     case 'removed':
       return { kids: [el('span', 'removed', 'Removed'), linkBtn('Add back', 'Add back to neo-plan', onRestore, busy)], label: 'Removed from neo-plan' };
     case 'missing':
       return { kids: [el('span', 'pill', 'Missing'), circle(s.exam)], label: s.exam ? 'Missing, not studied' : 'Missing, not done' };
     case 'ready':
       return s.exam
-        ? { kids: [st('done', true, 'Studied')], label: 'Studied (neo-plan)' }
-        : { kids: [st('done', false, 'Done, not submitted')], label: 'Marked done in neo-plan, not submitted' };
+        ? { kids: [st('done', true, ['Studied'], toggleFor('ready', true))], label: 'Studied (neo-plan)' }
+        : { kids: [st('done', false, ['Done, not submitted'], toggleFor('ready', false))], label: 'Marked done in neo-plan, not submitted' };
     case 'todo': {
       const due = shortDue(item, rowDue);
       const dueEl = due ? el('span', 'num', due) : null;
-      if (s.exam) return { kids: [st('exam', true, 'Not studied', dueEl)], label: due ? `Not studied, on ${due}` : 'Not studied' };
+      if (s.exam) return { kids: [st('exam', true, ['Not studied', dueEl], toggleFor('todo', true))], label: due ? `Not studied, on ${due}` : 'Not studied' };
       // With no due date to show (a row that already shows it), the words say it.
-      return { kids: [st('', false, dueEl || 'To do')], label: due ? `Not done, due ${due}` : 'Not done' };
+      return { kids: [st('', false, [dueEl || 'To do'], toggleFor('todo', false))], label: due ? `Not done, due ${due}` : 'Not done' };
     }
     case 'none':
       return { kids: [linkBtn('+ Add to neo-plan', 'Add to neo-plan', onAdd, busy)], label: 'Not in neo-plan' };

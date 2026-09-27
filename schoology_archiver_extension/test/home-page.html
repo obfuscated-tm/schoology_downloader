@@ -1,0 +1,142 @@
+<!doctype html>
+<!-- A stand-in for /home, with a right-hand column built the way
+     reader/parse/sync.js's homeRowsIn (the "#todo.todo-wrapper" To Do block,
+     .upcoming-event rows) and overlays/todo.js (the Course Dashboard's cards,
+     guessed markup — see the ASSUMPTION note at the top of overlays/todo.js)
+     read it, to look at the To Do sidebar outside Schoology. Serve
+     schoology_archiver_extension/ (python3 -m http.server) and open
+     /test/home-page.html. The ▲/▼ buttons on the dashboard cards simulate
+     Owen dragging them, to check the sidebar's groups re-sort live. ?fail
+     makes the events fetch fail, to check the fallback (Schoology's own
+     block stays up). The real data below is the fixture from the task and
+     from test/todo.test.js. -->
+<html><head><meta charset="utf-8"><title>Home stand-in</title>
+<style>
+body { font: 13px Arial, sans-serif; color: #333; background: #fff; margin: 24px; }
+.layout { display: flex; gap: 24px; align-items: flex-start; }
+.main { flex: 1 1 auto; min-width: 0; }
+.right { width: 320px; flex: none; }
+h2 { margin: 0 0 12px; }
+h3 { font-size: 14px; margin: 0 0 8px; }
+h4 { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 4px; }
+.todo-wrapper, .s-home-calendar, .s-home-recent { border: 1px solid #e3e3e3; border-radius: 4px; padding: 10px 12px; margin-bottom: 16px; }
+.upcoming-event { padding: 6px 0; border-bottom: 1px solid #eee; }
+.upcoming-event a { color: #0677BA; text-decoration: none; display: block; }
+.realm-title-course { color: #888; font-size: 11px; }
+.due-text { display: block; color: #888; font-size: 11px; }
+#dashboard-course-list { border: 1px solid #e3e3e3; border-radius: 4px; padding: 8px; margin-bottom: 16px; }
+.course-card { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-bottom: 1px solid #eee; }
+.course-card:last-child { border-bottom: 0; }
+.course-card-title { flex: 1 1 auto; font-weight: bold; }
+.course-card button { font-size: 11px; }
+label.toggle { display: block; margin-bottom: 12px; font-size: 12px; }
+</style></head>
+<body>
+<h2>Home</h2>
+<label class="toggle"><input type="checkbox" id="overlay-switch" checked> Overlay on</label>
+<div class="layout">
+  <div class="main">
+    <h3>Course Dashboard</h3>
+    <div class="course-dashboard"><div class="course-dashboard__inner"><ul class="sgy-sortable" id="dashboard-course-list"></ul></div></div>
+    <p style="color:#888">(In real Schoology the cards live on the Course Dashboard tab, not beside To Do; they're shown here together so the sidebar can be previewed with a live card order. If the cards aren't on screen, the sidebar uses the last order it saw, cached in chrome.storage.local, and falls back to alphabetical.)</p>
+  </div>
+  <div class="right">
+    <div class="sHome-processed" id="right-column"><div id="right-column-inner">
+    <div class="todo todo-wrapper" id="todo">
+      <h3>To Do</h3>
+      <h4>Overdue</h4>
+      <div class="upcoming-event" data-start="1789513140"><a href="/assignment/1">French Revolution Quick Write</a><span class="realm-title-course">World History - 1620</span><span class="due-text">12 days overdue</span></div>
+      <div class="upcoming-event"><a href="/course/41/assessments/2">Interro de vocabulaire 1.2</a><span class="realm-title-course">French 2 - 4120</span><span class="due-text">11 days overdue</span></div>
+      <div class="upcoming-event" data-start="1790027940"><a href="/assignment/3">HW #13: Pg. 648 # 29-37(odd), Pg. 655 # 15, 21, 33, 43, 56, 69, 73, Pg. 663 # 9, 11, 17, 42, 51, 103, 107</a><span class="realm-title-course">Pre-Calculus H - 2420</span><span class="due-text">6 days overdue</span></div>
+      <h4>Upcoming</h4>
+      <div class="upcoming-event" data-start="1790200740"><a href="/assignment/10">Lab 9.1 Fibonacci</a><span class="realm-title-course">AP Comp Sci A - 2350</span><span class="due-text">Due Sunday, September 27, 2026 at 11:59 pm</span></div>
+      <div class="upcoming-event" data-start="1790200740"><a href="/assignment/11">Read Lesson 9</a><span class="realm-title-course">AP Comp Sci A - 2350</span><span class="due-text">Due Sunday, September 27, 2026 at 11:59 pm</span></div>
+      <div class="upcoming-event" data-start="1790253000"><a href="/assignment/12">HW 9/25 FBDs</a><span class="realm-title-course">AP Physics 1 - 3750</span><span class="due-text">Due Monday, September 28, 2026 at 8:30 am</span></div>
+      <div class="upcoming-event" data-start="1790253000"><a href="/assignment/13">Reminder: Quiz 2- NEED LOCKDOWN BROWSER</a><span class="realm-title-course">AP Physics 1 - 3750</span><span class="due-text">Due Monday, September 28, 2026 at 8:30 am</span></div>
+      <div class="upcoming-event" data-start="1790330700"><a href="/assignment/14">Mini Quiz 1 - Ternary Operator and If-Else logic</a><span class="realm-title-course">AP Comp Sci A - 2350</span><span class="due-text">Due Tuesday, September 29, 2026 at 10:05 am</span></div>
+      <div class="upcoming-event" data-start="1790352000"><a href="/assignment/15">In-class Lab 6.2 - Static Review</a><span class="realm-title-course">AP Comp Sci A - 2350</span><span class="due-text">Due Tuesday, September 29, 2026 at 4:00 pm</span></div>
+      <div class="upcoming-event" data-start="1790373540"><a href="/assignment/16">Chapter 10 Exam (points to be determined)</a><span class="realm-title-course">Pre-Calculus H - 2420</span><span class="due-text">Due Tuesday, September 29, 2026 at 11:59 pm</span></div>
+    </div>
+    </div>
+    <div class="s-home-calendar"><h3>Calendar</h3><p style="color:#888">Untouched by the overlay.</p></div>
+    <div class="s-home-recent"><h3>Recently Completed</h3><p style="color:#888">Untouched by the overlay.</p></div>
+    </div></div>
+  </div>
+</div>
+<script type="module">
+const q = new URLSearchParams(location.search);
+
+// ── The Course Dashboard's cards, with ▲/▼ to simulate a drag reorder ──────
+const CARD_NAMES = [
+  'Pre-Calculus H - 2420: JaehnigS p1 T1',
+  'AP Comp Sci A - 2350: McLeodT p2 T1',
+  'World Lit/Writ - 1020: Phelps McQuaideA p3 T1',
+  'French 2 - 4120: AggounI p4 T1',
+  'AP Physics 1 - 3750: AgarwalA p5 T1',
+  'World History - 1620: Santa Cruz RayM p7 T1',
+  'Closed Tutorial - 9100: McLeodT pCTut',
+  'CHS Hub: Gr10',
+];
+const list = document.getElementById('dashboard-course-list');
+function drawCards() {
+  list.replaceChildren();
+  for (const name of CARD_NAMES) {
+    const card = document.createElement('li');
+    card.className = 'sgy-grid-layout__item';
+    card.setAttribute('data-key', '.$' + (8465375000 + CARD_NAMES.indexOf(name)));
+    const title = document.createElement('div');
+    title.className = 'course-dashboard__card-context-title';
+    title.textContent = name;
+    const up = document.createElement('button');
+    up.type = 'button'; up.textContent = '▲';
+    up.onclick = () => {
+      const i = CARD_NAMES.indexOf(name);
+      if (i > 0) { [CARD_NAMES[i - 1], CARD_NAMES[i]] = [CARD_NAMES[i], CARD_NAMES[i - 1]]; drawCards(); }
+    };
+    card.append(title, up);
+    list.append(card);
+  }
+}
+drawCards();
+
+// ── The events the sidebar groups (the task's own fixture) ────────────────
+const OVERDUE = [
+  { schoology_id: '1', title: 'French Revolution Quick Write', course: 'World History - 1620', section_id: '16', due: '2026-09-15T18:59:00', graded: false, url: '/assignment/1' },
+  { schoology_id: '2', title: 'Interro de vocabulaire 1.2', course: 'French 2 - 4120', section_id: '41', due: '2026-09-16T18:59:00', graded: false, url: '/course/41/assessments/2' },
+  { schoology_id: '3', title: 'HW #13: Pg. 648 # 29-37(odd), Pg. 655 # 15, 21, 33, 43, 56, 69, 73, Pg. 663 # 9, 11, 17, 42, 51, 103, 107', course: 'Pre-Calculus H - 2420', section_id: '24', due: '2026-09-21T18:59:00', graded: false, url: '/assignment/3' },
+];
+const UPCOMING = [
+  { schoology_id: '10', title: 'Lab 9.1 Fibonacci', course: 'AP Comp Sci A - 2350', section_id: '23', due: '2026-09-27T23:59:00', graded: false, url: '/assignment/10' },
+  { schoology_id: '11', title: 'Read Lesson 9', course: 'AP Comp Sci A - 2350', section_id: '23', due: '2026-09-27T23:59:00', graded: false, url: '/assignment/11' },
+  { schoology_id: '12', title: 'HW 9/25 FBDs', course: 'AP Physics 1 - 3750', section_id: '37', due: '2026-09-28T08:30:00', graded: false, url: '/assignment/12' },
+  { schoology_id: '13', title: 'Reminder: Quiz 2- NEED LOCKDOWN BROWSER', course: 'AP Physics 1 - 3750', section_id: '37', due: '2026-09-28T08:30:00', graded: false, url: '/assignment/13' },
+  { schoology_id: '14', title: 'Mini Quiz 1 - Ternary Operator and If-Else logic', course: 'AP Comp Sci A - 2350', section_id: '23', due: '2026-09-29T10:05:00', graded: false, url: '/assignment/14' },
+  { schoology_id: '15', title: 'In-class Lab 6.2 - Static Review', course: 'AP Comp Sci A - 2350', section_id: '23', due: '2026-09-29T16:00:00', graded: false, url: '/assignment/15' },
+  { schoology_id: '16', title: 'Chapter 10 Exam (points to be determined)', course: 'Pre-Calculus H - 2420', section_id: '24', due: '2026-09-29T23:59:00', graded: false, url: '/assignment/16' },
+];
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function getEvents(list) {
+  await wait(150);
+  if (q.has('fail')) throw new Error('HTTP 401');
+  return list === 'overdue' ? OVERDUE : UPCOMING;
+}
+const mem = {};
+const store = { async get(k) { return mem[k]; }, async set(k, v) { mem[k] = v; } };
+async function call(op, args) {
+  await wait(120);
+  if (op === 'items') return { ok: true, status: 200, data: { items: [] } }; // nothing in neo-plan yet: every row offers "+ Add to neo-plan"
+  if (op === 'addItem') return { ok: true, status: 200, data: { id: 'new', work: 'todo' } };
+  return { ok: false, status: 404, data: {} };
+}
+
+globalThis.__npNoAutoStart = true;
+const { start } = await import('../overlays/home.js');
+const now = () => new Date('2026-09-27T12:00:00');
+window.overlay = await start({ loc: { pathname: '/home' }, call, getEvents, todoStore: store, now });
+
+document.getElementById('overlay-switch').addEventListener('change', async (e) => {
+  const { setOverlay } = await import('../overlays/ui.js');
+  setOverlay(e.target.checked);
+});
+</script>
+</body></html>

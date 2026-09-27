@@ -27,9 +27,15 @@ const CSS = MARK_CSS + `
 const TAG = 'np-mark';
 
 /**
- * rowsIn(doc) → [{ el, schoology_id, title, due?, realm?, section_id?, titleEl?, graded? }].
- * `el` is the row the marker goes in; `titleEl`, when the title isn't a link
- * to the assignment, what to line it up with.
+ * rowsIn(doc) → [{ el, schoology_id, title, due?, realm?, section_id?, titleEl?,
+ * graded?, markSlot?, onState? }]. `el` is the row the marker goes in; `titleEl`,
+ * when the title isn't a link to the assignment, what to line it up with.
+ * `markSlot`, when given (todo.js's own grid rows), is where the marker host
+ * is placed instead — inline, with none of the float/flex placement or the
+ * align() nudging other pages need. `onState(state, item)`, when given, is
+ * called every time a row is drawn, with rowState()'s result and the known
+ * Item (or null: not in neo-plan; undefined: not known yet) — todo.js uses it
+ * to keep its own type tag in step.
  */
 export function startMarks({ rowsIn, doc = document, loc = location, call = np }) {
   const known = new Map(); // schoology_id → Item | null (null: not in neo-plan)
@@ -43,6 +49,7 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
   const titleOf = (row) => row.titleEl || [...row.el.querySelectorAll('a[href]')].find((a) => /\/assignment\/\d+/.test(a.getAttribute('href'))) || null;
 
   function align(m) {
+    if (m.row.markSlot) return; // todo.js's grid rows line the marker up themselves
     const a = titleOf(m.row);
     const line = a?.getClientRects()[0];
     if (!line || !m.host.getClientRects().length) return;
@@ -62,6 +69,7 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
       busy: m.busy,
       onAdd: () => add(row),
       onRestore: () => restore(row),
+      onToggle: () => toggle(row),
     });
     const err = errors.get(row.schoology_id);
     if (err) kids.push(el('span', 'bad', err));
@@ -72,6 +80,7 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
     box.append(...kids);
     m.root.replaceChildren(m.root.firstChild, box); // keep the <style>
     align(m);
+    row.onState?.(s, it); // todo.js's rotated type tag follows the same state/item
   }
 
   function drawAll() {
@@ -103,12 +112,28 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
     },
   }));
   const restore = (row) => change(row, () => call('restore', { id: known.get(row.schoology_id)?.id }));
+  // Studied/not studied, done/not done: flips instantly (the state known.get
+  // already shows before the call answers), and rolls back on refusal.
+  function toggle(row) {
+    const it = known.get(row.schoology_id);
+    if (!it) return;
+    if ((marks.get(row.schoology_id) || []).some((x) => x.busy)) return; // change() would skip it, after the flip below
+    const work = it.work === 'ready' ? 'todo' : 'ready';
+    known.set(row.schoology_id, { ...it, work });
+    return change(row, async () => {
+      const r = await call('work', { id: it.id, work });
+      if (!r.ok) known.set(row.schoology_id, it); // rollback: the marker flips back
+      return r;
+    });
+  }
 
   /** Where the marker goes in this row, and how it sits there. */
   // Inline, not :host rules: a page's own "* { margin: 0 }" outranks :host.
   const FLEX = { flex: 'none', alignSelf: 'flex-start', marginLeft: 'auto', paddingLeft: '8px', paddingRight: '2px' };
   const BLOCK = { float: 'right', marginLeft: '8px' };
-  function place(host, rowEl) {
+  function place(host, row) {
+    if (row.markSlot) { row.markSlot.append(host); return; } // todo.js's own grid slot: no float/flex, no nudging
+    const rowEl = row.el;
     const flex = /flex/.test(getComputedStyle(rowEl).display);
     Object.assign(host.style, flex ? FLEX : BLOCK);
     // The popup's body has no padding of its own: keep the words off its border.
@@ -133,7 +158,7 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
       ours.add(host);
       keepEvents(host);
       host.hidden = true;
-      place(host, row.el);
+      place(host, row);
       const x = { row, host, root, busy: false };
       list.push(x);
       drawMark(x);

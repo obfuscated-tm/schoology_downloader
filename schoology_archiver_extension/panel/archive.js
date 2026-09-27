@@ -152,7 +152,8 @@ async function start() {
   try {
     const r = await archiver.run();
     const s = r.stats;
-    const summary = `${s.added.length} new, ${s.updated.length} updated, ${s.unchanged} unchanged, ${s.failed.length} problems`;
+    const summary = `${s.added.length} new, ${s.updated.length} updated, ${s.unchanged} unchanged, ${s.failed.length} problems`
+      + (r.skipped ? `, ${r.skipped} pages skipped` : '');
     if (r.stopped) {
       $('statusText').textContent = `Stopped — ${s.added.length + s.updated.length} files saved`;
       log(`\nStopped. ${summary}.`, 'warn');

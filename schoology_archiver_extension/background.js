@@ -1,14 +1,17 @@
-import { handleNeoplan, getConfig } from './outputs/neoplan/api.js';
+import { handleNeoplan, getConfig, isWorkValue } from './outputs/neoplan/api.js';
 import { requestSync, stopSync, syncRunning, reportSubmitted, sectionForRealm, SYNC_LOCK_ID, KEY_HOST } from './sync/runner.js';
 import { KEY_SNAPSHOT } from './sync/sync.js';
+import { limiter, restorePausedUntil, persistPausedUntil } from './sync/limiter.js';
 
 const SYNC_ALARM = 'neoplan-sync';
+const SYNC_SOON_ALARM = 'neoplan-sync-soon';
 const SYNC_EVERY_MIN = 15;
-const TAB_SYNC_GAP_MS = 5 * 60_000; // a Schoology page load starts a sync, at most every 5 min
+const TAB_SYNC_GAP_MS = 10 * 60_000; // a Schoology page load starts a sync, at most every 10 min
 // What a content script on a Schoology page may ask neo-plan. Never the token,
 // the server, the course map or a raw enrich. Never Turn in either: on
 // Schoology's pages work is turned in only with Schoology's own Submit button.
-const CONTENT_OPS = new Set(['items', 'addItem', 'remove', 'restore']);
+// 'work' (marking studied/done, or back) is the one write besides add/remove.
+const CONTENT_OPS = new Set(['items', 'addItem', 'remove', 'restore', 'work']);
 // A Materials page's "Sync now": { host, courseId, at } for the archive panel.
 const ARCHIVE_REQUEST = 'archiveRequest';
 
@@ -53,6 +56,8 @@ function origin(sender) {
 
 async function contentNeoplan(msg) {
   if (!CONTENT_OPS.has(msg.op)) return { ok: false, status: 403, data: { error: 'op' } };
+  // A content script may only flip work between the two states the marker shows; never Turn in.
+  if (msg.op === 'work' && !isWorkValue(msg.work)) return { ok: false, status: 400, data: { error: 'work' } };
   if (msg.op === 'addItem' && msg.item && !msg.item.section_id && msg.item.realm) {
     msg = { ...msg, item: { ...msg.item, section_id: await sectionForRealm(msg.item.realm) } };
   }
@@ -126,6 +131,20 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       if (running?.id === msg.id) chrome.storage.session.remove('running');
     });
   }
+  // The shared rate limiter: a panel or content script asks for a slot before
+  // it fetches Schoology, and reports when it hit the limit. Never the token
+  // or the server — this is just pacing.
+  if (msg?.type === 'schoologySlot') {
+    if (from !== 'page' && from !== 'content') return false;
+    limiter.acquire().then(() => reply({ ok: true }));
+    return true;
+  }
+  if (msg?.type === 'schoologyRateLimited') {
+    if (from !== 'page' && from !== 'content') return false;
+    limiter.pause();
+    persistPausedUntil();
+    return false;
+  }
   return false;
 });
 
@@ -144,11 +163,13 @@ async function ensureAlarm() {
   }
 }
 chrome.runtime.onInstalled.addListener(() => { ensureAlarm(); });
-chrome.runtime.onStartup.addListener(() => { ensureAlarm(); });
+chrome.runtime.onStartup.addListener(() => { ensureAlarm(); restorePausedUntil(); });
 ensureAlarm().catch(() => {}); // and whenever the worker starts, in case the alarm was lost
+restorePausedUntil().catch(() => {}); // the worker may have been killed mid-pause; pick it back up
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SYNC_ALARM) requestSync({ isArchiveRunning, reason: 'alarm' }).catch(() => {});
+  if (alarm.name === SYNC_SOON_ALARM) requestSync({ isArchiveRunning, reason: 'tab' }).catch(() => {});
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
@@ -159,7 +180,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
   if (syncRunning()) return;
   const snap = (await chrome.storage.local.get(KEY_SNAPSHOT))[KEY_SNAPSHOT];
   if (snap?.at && Date.now() - Date.parse(snap.at) < TAB_SYNC_GAP_MS) return;
-  requestSync({ isArchiveRunning, reason: 'tab' }).catch(() => {});
+  // Don't start a sync the instant the page finishes loading — that collides
+  // with Schoology's own page-load burst against the same 15-per-5s limit.
+  // A short one-shot alarm lets that burst finish first.
+  if (await chrome.alarms.get(SYNC_SOON_ALARM)) return;
+  await chrome.alarms.create(SYNC_SOON_ALARM, { delayInMinutes: 0.5 });
 });
 
 async function killEverything() {

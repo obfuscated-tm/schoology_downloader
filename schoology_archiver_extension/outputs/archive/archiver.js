@@ -6,11 +6,14 @@ import { parseAssignment, parseDropbox, findSubmissionSources, submissionId } fr
 import { parseCommonAssessment, parseLegacyQuizAttempts, parseLegacyQuizReview } from '../../reader/parse/quiz.js';
 import { parseGrades } from '../../reader/parse/grades.js';
 import { parseFeedPage } from '../../reader/parse/feed.js';
+import { nextEventsUrl } from '../../reader/parse/sync.js';
+import { rowSignature, eventChangeKeys, shouldSkip } from '../../reader/changes.js';
 import { Saver, FolderWriter, DownloadsWriter, ARCHIVE_ROOT } from './saver.js';
 import { classifyLink, prepareGoogle } from './google.js';
 
 const MAX_DEPTH = 20;
 const join = (...parts) => parts.filter(Boolean).join('/');
+const basename = (p) => p.split('/').pop();
 
 export class Archiver {
   constructor({ host, courseId, tabId, folder, options, log, progress }) {
@@ -77,9 +80,18 @@ export class Archiver {
       }
     } catch { /* not supported */ }
 
+    this.skippedCount = 0;
+    this.recheckedCount = 0;
+    const { map: eventKeys, available: eventsAvailable } = await this.loadEventChangeKeys();
+    this.eventKeys = eventKeys;
+    this.eventsAvailable = eventsAvailable;
+
     try {
       try {
         await this.walkFolder(this.client.abs(`/course/${this.courseId}/materials`), [], new Set(), 0, materials);
+        if (this.skippedCount || this.recheckedCount) {
+          this.log(`Skipped ${this.skippedCount} unchanged items without opening them (${this.recheckedCount} re-checked).`);
+        }
         if (!this.stopped && this.options.grades) await this.saveGrades();
         if (!this.stopped && this.options.updates) await this.saveUpdates();
       } catch (e) {
@@ -90,7 +102,10 @@ export class Archiver {
     } finally {
       if (uiDisabled) try { await chrome.downloads.setUiOptions({ enabled: true }); } catch { /* ignore */ }
     }
-    return { stats: this.saver.stats, errors: this.errors, stopped: this.stopped, location: this.location };
+    return {
+      stats: this.saver.stats, errors: this.errors, stopped: this.stopped, location: this.location,
+      skipped: this.skippedCount, rechecked: this.recheckedCount,
+    };
   }
 
   fail(where, e) {
@@ -98,6 +113,29 @@ export class Archiver {
     this.errors.push(msg);
     this.saver.stats.failed.push(msg);
     this.log(msg, 'error');
+  }
+
+  // /v2/events/{upcoming,overdue}: change keys for assignments that are
+  // still upcoming or overdue (what a teacher is actually likely to edit).
+  // Any failure — including a rate limit — makes event info unavailable for
+  // the whole run rather than trusting a half-fetched map.
+  async loadEventChangeKeys() {
+    const map = new Map();
+    try {
+      for (const list of ['upcoming', 'overdue']) {
+        let url = `/v2/events/${list}`;
+        for (let page = 0; page < 20 && url; page++) {
+          const { text } = await this.client.getText(url, { headers: { Accept: 'application/json' } });
+          for (const [id, key] of await eventChangeKeys(text)) map.set(id, key);
+          url = nextEventsUrl(text);
+        }
+      }
+      return { map, available: true };
+    } catch (e) {
+      if (this.isStop(e)) throw e;
+      this.log(`Couldn't read upcoming/overdue assignments (${e.message || e}); re-checking assignments more often this run.`, 'warn');
+      return { map: new Map(), available: false };
+    }
   }
 
   // ── Folders ───────────────────────────────────────────────────────────
@@ -132,6 +170,32 @@ export class Archiver {
         await this.walkFolder(row.url, [...pathParts, row.title], visited, depth + 1);
         continue;
       }
+
+      // The options that change what doX saves are part of the signature: a
+      // run with Google export or submissions newly ticked re-opens everything.
+      const sig = `${rowSignature(row)}\u0002${['google', 'submissions', 'quizzes'].map((k) => (this.options[k] ? 1 : 0)).join('')}`;
+      const stored = this.manifest.items[row.key];
+      const assignmentId = row.kind === 'assignment' ? ((row.url || '').match(/\/assignment\/(\d+)/) || [])[1] || null : null;
+      const skip = shouldSkip({
+        stored, row, sig, kind: row.kind, assignmentId,
+        eventKeys: this.eventKeys, eventsAvailable: this.eventsAvailable,
+        now: Date.now(), redownloadAll: !!this.options.redownloadAll,
+      }) && (await this.saver.slotsPresent(`${row.key}#`));
+
+      if (skip) {
+        const entry = { ...stored.entry, folder: label, dir };
+        this.entries.push(entry);
+        this.progress(this.entries.length);
+        this.saver.keepItem(row.key);
+        this.skippedCount++;
+        this.manifest.items[row.key] = {
+          ...stored, title: entry.title, kind: entry.kind, folder: label,
+          files: entry.files.map((f) => f.path), lastSeen: this.manifest.currentRun, removed: false,
+        };
+        continue;
+      }
+      if (stored) this.recheckedCount++;
+
       const entry = {
         key: row.key, kind: row.kind, title: row.title, folder: label, dir,
         files: [], links: [], notes: [], due: '', grade: '', sourceUrl: row.url || '',
@@ -141,7 +205,7 @@ export class Archiver {
       try {
         switch (row.kind) {
           case 'document': await this.doDocument(row, entry, dir); break;
-          case 'assignment': await this.doAssignment(row, entry, dir); break;
+          case 'assignment': await this.doAssignment(row, entry, dir, stored?.ok === true); break;
           case 'quiz': await this.doQuiz(row, entry, dir); break;
           case 'page': await this.doPage(row, entry, dir, ''); break;
           case 'discussion': await this.doPage(row, entry, dir, ' (discussion)'); break;
@@ -152,9 +216,17 @@ export class Archiver {
         entry.notes.push(`Error: ${e.message || e}`);
         this.fail(`"${row.title}" in ${label}`, e);
       }
+      const ok = !entry.notes.some((n) => n.startsWith('Error:'));
       this.manifest.items[row.key] = {
         title: entry.title, kind: entry.kind, folder: label,
         files: entry.files.map((f) => f.path), lastSeen: this.manifest.currentRun, removed: false,
+        sig, checkedAt: this.manifest.currentRun, ok,
+        changeKey: assignmentId && this.eventKeys.has(assignmentId) ? this.eventKeys.get(assignmentId) : undefined,
+        entry: {
+          kind: entry.kind, title: entry.title, folder: entry.folder, dir: entry.dir,
+          files: entry.files, links: entry.links, notes: entry.notes,
+          due: entry.due, grade: entry.grade, sourceUrl: entry.sourceUrl,
+        },
       };
     }
   }
@@ -234,7 +306,10 @@ export class Archiver {
   }
 
   // ── Assignments ───────────────────────────────────────────────────────
-  async doAssignment(row, entry, dir) {
+  // prevOk: whether last run's pass over this same assignment finished clean
+  // (its manifest item's `ok`) — a precondition for reusing a middle
+  // revision's files without reopening that revision's page.
+  async doAssignment(row, entry, dir, prevOk = false) {
     const { doc, url: finalUrl } = await this.client.getDoc(row.url);
     const a = parseAssignment(doc, this.client, finalUrl);
     entry.due = a.due;
@@ -276,23 +351,36 @@ export class Archiver {
       entry.grade = d1.grade;
       for (const c of d1.comments) commentLines.push(`- **${c.author || 'Comment'}:** ${c.text}`);
       const revisions = d1.revisions.length ? d1.revisions : [1];
+      const latestRev = revisions[revisions.length - 1];
       for (const rev of revisions) {
-        const d = rev === 1 ? d1 : parseDropbox((await this.client.getDoc(`${a.dropboxUrl}?revision=${rev}`)).doc, this.client);
-        const files = await this.collectSubmissionFiles(d);
+        // A past revision's files don't change once graded; skip reopening
+        // its page when we already have them saved from a run that finished
+        // clean. Revision 1 (for the count above) and the latest revision
+        // (new comments/grades can land there) are always re-fetched.
+        const prefix = `${row.key}#rev${rev}#`;
         const lines = [];
-        let k = 0;
-        for (const f of files) {
-          k++;
-          const base = `My submission - revision ${rev}` + (f.name ? ` - ${sanitizeName(f.name, 60)}` : files.length > 1 ? ` (${k})` : '');
-          const path = await this.saver.save({
-            slot: `${row.key}#rev${rev}#${f.id}`,
-            relPath: join(filesDir, withExt(base, f.ext)),
-            fingerprint: new URL(f.url).pathname, getSource: async () => ({ url: f.url }),
-          });
-          entry.files.push({ label: `My submission, revision ${rev}`, path });
-          lines.push(`- [${f.name || `File ${k}`}](${mdPath(rel(path))})`);
+        if (prevOk && rev !== 1 && rev !== latestRev && this.saver.hasSlots(prefix) && (await this.saver.slotsPresent(prefix))) {
+          for (const rec of this.saver.keepSlots(prefix)) {
+            entry.files.push({ label: `My submission, revision ${rev}`, path: rec.path });
+            lines.push(`- [${basename(rec.path)}](${mdPath(rel(rec.path))})`);
+          }
+        } else {
+          const d = rev === 1 ? d1 : parseDropbox((await this.client.getDoc(`${a.dropboxUrl}?revision=${rev}`)).doc, this.client);
+          const files = await this.collectSubmissionFiles(d);
+          let k = 0;
+          for (const f of files) {
+            k++;
+            const base = `My submission - revision ${rev}` + (f.name ? ` - ${sanitizeName(f.name, 60)}` : files.length > 1 ? ` (${k})` : '');
+            const path = await this.saver.save({
+              slot: `${row.key}#rev${rev}#${f.id}`,
+              relPath: join(filesDir, withExt(base, f.ext)),
+              fingerprint: new URL(f.url).pathname, getSource: async () => ({ url: f.url }),
+            });
+            entry.files.push({ label: `My submission, revision ${rev}`, path });
+            lines.push(`- [${f.name || `File ${k}`}](${mdPath(rel(path))})`);
+          }
+          for (const l of d.links) lines.push(`- Link: [${l.title || l.url}](${l.url})`);
         }
-        for (const l of d.links) lines.push(`- Link: [${l.title || l.url}](${l.url})`);
         if (lines.length) subLines.push(`### Revision ${rev}`, ...lines, '');
       }
       if (!subLines.length) subLines.push('Submitted, but no file could be found (it may be a text entry or a Google Drive submission — check Schoology).');

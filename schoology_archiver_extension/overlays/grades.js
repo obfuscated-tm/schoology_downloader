@@ -1,4 +1,5 @@
-// The grades page, /course/{id}/student_grades (docs/OVERLAY-UI.md §1), inline
+// The grades page, /course/{id}/student_grades (docs/OVERLAY-UI.md §1), and
+// each course on /grades/grades, inline
 // in Schoology's own table. Schoology's rows, grades and buttons stay as they
 // are; this only adds, and only what the page doesn't already show:
 //   course row     beside Schoology's grade, Graph (a step chart of the
@@ -233,10 +234,29 @@ function drawChart(box, pts, proj) {
 
 // ── The page ─────────────────────────────────────────────────────────────
 
+/**
+ * One course's page, /course/{id}/student_grades → its overlay; or the
+ * all-courses page, /grades/grades → [overlay], one per course with grades.
+ * Each course there is a .gradebook-course, id s-js-gradebook-course-{id},
+ * collapsed until clicked, its rows already in the page.
+ */
 export async function start({ doc = document, loc = location } = {}) {
-  const rows = parseGrades(doc, { els: true });
-  if (!rows.length) return null;
+  if (/^\/grades\/grades\/?$/.test(loc.pathname)) {
+    const out = [];
+    for (const box of doc.querySelectorAll('.gradebook-course')) {
+      const courseId = (box.id.match(/(\d+)$/) || [])[1];
+      const o = courseId && await mountCourse({ doc, root: box, courseId });
+      if (o) out.push(o);
+    }
+    return out;
+  }
   const courseId = (loc.pathname.match(/^\/course\/(\d+)/) || [])[1] || 'page';
+  return mountCourse({ doc, root: doc, courseId });
+}
+
+async function mountCourse({ doc, root: scope, courseId }) {
+  const rows = parseGrades(scope, { els: true });
+  if (!rows.length) return null;
   const course = currentPeriod(periodsFromRows(rows));
   if (!course) return null;
 
@@ -258,8 +278,9 @@ export async function start({ doc = document, loc = location } = {}) {
 
   // Schoology hides its "Course Grade" row (display: none) and shows the grade
   // in a box under the table; then the current period's row, at the top,
-  // carries the course-level additions.
-  const courseRow = [rows.find((r) => r.level === 'course'), course.src].find((r) => r && isShown(r.el))
+  // carries the course-level additions. The row's own display, not whether
+  // it's on screen: on /grades/grades the whole course starts collapsed.
+  const courseRow = [rows.find((r) => r.level === 'course'), course.src].find((r) => r?.el && getComputedStyle(r.el).display !== 'none')
     || rows.find((r) => r.level === 'course') || course.src;
   const updates = []; // () => void, run on every change
   const ourRows = []; // { tr, shown: () => bool }
@@ -540,7 +561,8 @@ export async function start({ doc = document, loc = location } = {}) {
     syncRows();
   }
 
-  const table = courseRow.el.closest('table') || doc.body;
+  // Schoology's collapsing: rows in the table; on /grades/grades, the course too.
+  const table = scope === doc ? courseRow.el.closest('table') || doc.body : scope;
   new MutationObserver(debounce(syncRows, 60)).observe(table, { attributes: true, attributeFilter: ['class', 'style'], subtree: true });
   onOverlay(() => {
     for (const [tr, on] of wantTint) tint(tr, on);
