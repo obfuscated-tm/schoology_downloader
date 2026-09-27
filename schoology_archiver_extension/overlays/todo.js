@@ -355,7 +355,10 @@ function renderGroup(g, expanded) {
  */
 export function start({
   doc = document, loc = location, getEvents = fetchEvents,
-  store = { get: (k) => chrome.storage.local.get(k).then((v) => v?.[k]), set: (k, v) => chrome.storage.local.set({ [k]: v }) },
+  // async: in a tab left open across an extension reload, chrome.storage throws
+  // "Extension context invalidated" synchronously; this turns it into a rejection
+  // the callers already catch.
+  store = { get: async (k) => (await chrome.storage.local.get(k))?.[k], set: async (k, v) => chrome.storage.local.set({ [k]: v }) },
   now = () => new Date(),
 } = {}) {
   const expanded = new Set(); // group key → expanded (memory only)
