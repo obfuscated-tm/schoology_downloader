@@ -26,6 +26,7 @@ export function whenText(iso, nowIso = new Date().toISOString(), zone = Intl.Dat
 /** One quiet line for a Snapshot, or '' when all is well. */
 export function problemText(snap, skipped) {
   if (skipped === 'busy') return 'Archive running';
+  if (skipped === 'quiz') return 'Paused: a quiz is open';
   if (!snap) return '';
   if (snap.error) return PROBLEM[snap.error] || 'Can’t read Schoology';
   if (snap.errors?.length) return `${snap.errors.length} ${snap.errors.length === 1 ? 'page' : 'pages'} unread`;

@@ -442,7 +442,9 @@ export function start({
     if (!r?.ok) {
       hint.textContent = r?.error === 'busy'
         ? 'An archive is already running. Stop it first.'
-        : 'Reload the extension, then this page.';
+        : r?.error === 'quiz'
+          ? 'A quiz is open in another tab. Finish it first.'
+          : 'Reload the extension, then this page.';
       hint.hidden = false;
       draw();
     }

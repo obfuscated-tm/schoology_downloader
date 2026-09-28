@@ -6,7 +6,8 @@ import { ensureOffscreen, OFFSCREEN_URL } from './offscreen/ensure.js';
 import { PROXY_OPS } from './outputs/archive/chrome-bridge.js';
 import { isValidCourseId, sanitizeOptions, reduceProgress } from './outputs/archive/state.js';
 import { getSavedFolder } from './outputs/archive/folder.js';
-import { connectBridge, pushSnapshot, closeBridge, bridgeConnected } from './outputs/mcp/bridge.js';
+import { connectBridge, pushSnapshot, closeBridge, bridgeConnected, setBridgePaused } from './outputs/mcp/bridge.js';
+import { isQuizPageUrl, quizTabOpen } from './sync/quiet.js';
 
 const SYNC_ALARM = 'neoplan-sync';
 const SYNC_SOON_ALARM = 'neoplan-sync-soon';
@@ -112,6 +113,7 @@ async function startArchive({ host, courseId, options, tabId }, reply) {
   const { running } = await chrome.storage.session.get('running');
   if (running?.id && running.id !== ARCHIVE_LOCK_ID && running.id !== SYNC_LOCK_ID) { reply({ ok: false, error: 'busy' }); return; }
   if (archiveActive) { reply({ ok: false, error: 'busy' }); return; }
+  if (await quizTabOpen()) { reply({ ok: false, error: 'quiz' }); return; }
   archiveActive = true;
   await chrome.storage.session.set({ running: { id: ARCHIVE_LOCK_ID, courseId } });
   try {
@@ -228,7 +230,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg?.type === 'sync') {
     if (from !== 'page') return false;
     if (msg.op === 'now') {
-      requestSync({ isArchiveRunning, reason: 'panel' }).then(async (r) => {
+      quizGate().then((quiz) => (quiz ? { skipped: 'quiz' } : requestSync({ isArchiveRunning, reason: 'panel' }))).then(async (r) => {
         pushSnapshot().catch(() => {});
         reply({ ...(await syncState()), skipped: r?.skipped || null });
       });
@@ -287,16 +289,46 @@ chrome.runtime.onStartup.addListener(() => { ensureAlarm(); ensureMcpAlarm(); re
 ensureAlarm().catch(() => {}); // and whenever the worker starts, in case the alarm was lost
 ensureMcpAlarm().catch(() => {});
 restorePausedUntil().catch(() => {}); // the worker may have been killed mid-pause; pick it back up
-connectBridge(); // never throws; a refused port just never opens
+quizGate().then((quiz) => { if (!quiz) connectBridge(); }); // never throws; a refused port just never opens
 
-chrome.alarms.onAlarm.addListener((alarm) => {
+// ── Quiz quiet mode (sync/quiet.js): while a Test/Quiz page is open in any
+// tab, no sync, no MCP bridge, no archive. Entering one stops everything
+// (as Alt+Shift+K does); every alarm checks again before doing anything, so
+// work picks back up on its own once the quiz tab is gone.
+let quiet = false;
+async function quizGate() {
+  const now = await quizTabOpen();
+  if (now !== quiet) {
+    quiet = now;
+    setBridgePaused(now);
+    if (now) await killEverything();
+    else connectBridge();
+  }
+  return now;
+}
+// The archiver's own review tabs open on /assessment_view before they're
+// recorded in `reviewTabs`; wait a moment so quizTabOpen() can tell them apart.
+let quizCheckTimer = null;
+function quizCheckSoon() {
+  clearTimeout(quizCheckTimer);
+  quizCheckTimer = setTimeout(() => { quizGate().catch(() => {}); }, 1500);
+}
+chrome.tabs.onRemoved.addListener(() => { if (quiet) quizCheckSoon(); });
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (await quizGate().catch(() => false)) return;
   if (alarm.name === SYNC_ALARM) requestSync({ isArchiveRunning, reason: 'alarm' }).then(() => pushSnapshot()).catch(() => {});
   if (alarm.name === SYNC_SOON_ALARM) requestSync({ isArchiveRunning, reason: 'tab' }).then(() => pushSnapshot()).catch(() => {});
   if (alarm.name === MCP_CONNECT_ALARM) connectBridge();
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
+  // A tab going into (or out of) a quiz page: check as soon as the URL changes.
+  if (info.url || info.status === 'loading') {
+    if (isQuizPageUrl(info.url || tab?.url) || quiet) quizCheckSoon();
+  }
   if (info.status !== 'complete') return;
+  if (quiet || isQuizPageUrl(tab?.url)) return;
   const m = (tab?.url || '').match(/^https:\/\/([a-z0-9-]+\.schoology\.com)\//i);
   if (!m || m[1].toLowerCase() === 'app.schoology.com') return;
   await chrome.storage.local.set({ [KEY_HOST]: m[1].toLowerCase() });

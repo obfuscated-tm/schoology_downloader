@@ -21,6 +21,7 @@ const PING_MS = 20_000;
 
 const sockets = new Map(); // port -> WebSocket
 let pingTimer = null;
+let paused = false; // quiz quiet mode (sync/quiet.js): no sockets at all
 
 function send(ws, obj) {
   if (ws.readyState !== WebSocket.OPEN) return;
@@ -77,6 +78,7 @@ function onMessage(ws, ev) {
   let msg;
   try { msg = JSON.parse(ev.data); } catch { return; }
   if (msg?.type !== 'request' || typeof msg.id === 'undefined') return; // 'pong' and anything else: nothing to do
+  if (paused) { respond(ws, msg.id, { ok: false, error: 'quiz', message: 'A Schoology quiz is open; the extension is paused.' }); return; }
   newDeps()
     .then((deps) => runMcpOp(msg.op, msg.args, deps))
     .then((r) => respond(ws, msg.id, r), (e) => respond(ws, msg.id, { ok: false, error: 'schoology', message: String(e?.message || e) }));
@@ -100,7 +102,7 @@ async function connectPort(port) {
   probing.add(port);
   const up = await listening(port);
   probing.delete(port);
-  if (!up || sockets.has(port)) return;
+  if (!up || paused || sockets.has(port)) return;
   let ws;
   try {
     ws = new WebSocket(`ws://127.0.0.1:${port}`);
@@ -136,6 +138,7 @@ function scheduleRetry(i = 0) {
 
 /** Connect to every port in range not already connected. Worker start + the `mcp-connect` alarm. */
 export function connectBridge() {
+  if (paused) return;
   for (const port of PORTS) connectPort(port).catch(() => {});
 }
 
@@ -153,6 +156,12 @@ export function closeBridge() {
   for (const ws of open) { try { ws.close(); } catch { /* already closed */ } }
   if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+}
+
+/** Quiz quiet mode: close every socket and stay closed until unpaused. */
+export function setBridgePaused(p) {
+  paused = !!p;
+  if (paused) closeBridge();
 }
 
 /** Whether any MCP server is connected right now — the Settings "Claude" row. */
