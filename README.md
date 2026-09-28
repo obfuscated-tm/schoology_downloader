@@ -9,12 +9,25 @@ This repo has two parts:
 | **Chrome extension** ("Schoology Course Archiver") | [`schoology_archiver_extension/`](schoology_archiver_extension/) | Archives whole courses to disk, adds overlays to Schoology pages (grades what-if, To Do, material markers), and syncs with neo-plan | **1.10.0** |
 | **MCP server** (`schoology-mcp`) | [`mcp/`](mcp/) | Lets Claude Desktop read your Schoology: to-do, grades, assignments, materials, and the archive | **1.1.0** |
 
-Everything runs on your own Mac, through your normal Schoology login in Chrome. Nothing is sent anywhere except to Schoology, Google (for Docs exports), and neo-plan if you give it a token.
+It works with any school's Schoology site (`yourschool.schoology.com`) from a **student** account. Everything runs on your own computer, through your normal Schoology login in Chrome. Nothing is sent anywhere except to Schoology, Google (for Docs exports), and neo-plan if you choose to connect it.
+
+### Before you start
+
+| You need | For | Check with |
+|---|---|---|
+| Google Chrome 116 or newer | the extension | `chrome://version` |
+| A Schoology student login | everything | you can see your courses in Chrome |
+| [Node.js](https://nodejs.org) 18 or newer | the MCP server only | `node --version` |
+| [Claude Desktop](https://claude.ai/download) | the MCP server only | — |
+| Git | downloading this repo (or use **Code → Download ZIP** on GitHub) | `git --version` |
+
+It's built and tested on macOS. The extension should work on any system Chrome runs on; for the MCP server on Windows, see the note in [Set it up](#set-it-up).
 
 ---
 
 ## Contents
 
+- [Before you start](#before-you-start)
 - [How the parts fit together](#how-the-parts-fit-together)
 - [Quick start](#quick-start)
 - [1. The Chrome extension](#1-the-chrome-extension)
@@ -31,10 +44,12 @@ Everything runs on your own Mac, through your normal Schoology login in Chrome. 
   - [Example prompts](#example-prompts)
   - [Course websites](#course-websites-sitesjson)
   - [Environment variables](#environment-variables)
+- [Privacy and safety](#privacy-and-safety)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Versioning and releases](#versioning-and-releases)
 - [More documentation](#more-documentation)
+- [License](#license)
 
 ---
 
@@ -42,7 +57,7 @@ Everything runs on your own Mac, through your normal Schoology login in Chrome. 
 
 ```mermaid
 flowchart LR
-    S[(Schoology<br/>fuhsd.schoology.com)]
+    S[(Schoology<br/>yourschool.schoology.com)]
     G[(Google Docs / Drive)]
     N[(neo-plan)]
 
@@ -65,7 +80,7 @@ flowchart LR
     M <-- stdio --> C
 ```
 
-- The **extension** is the only part that talks to Schoology. It reads pages with your existing login (the Schoology API is turned off for students in this district, so there is no API key to set up).
+- The **extension** is the only part that talks to Schoology. It reads pages with your existing login (many districts turn off Schoology's API for students, so this doesn't use it and there's no API key to set up).
 - The **archive** is plain files: PDFs, Markdown, spreadsheets. You can open it in Finder or hand it to any AI tool.
 - The **MCP server** gives Claude three sources, best first: **live** (asks the extension right now), **snapshot** (the extension's last background read, cached on disk), and **archive** (the folder). Every answer says which source it used and how old it is.
 
@@ -80,8 +95,15 @@ git clone https://github.com/obfuscated-tm/schoology_downloader.git
 ```
 
 1. **Load the extension:** open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the `schoology_archiver_extension` folder.
-2. **Archive a course:** open any course in Schoology, click **Archive** (bottom left), then **Archive this course**. Files land in `Downloads/Schoology Archive/<Course name>/`.
-3. **(Optional) Connect Claude:** install the MCP server and add it to Claude Desktop (see [Set it up](#set-it-up)).
+2. **Choose where archives go:** click the extension's toolbar icon → **Save archives to** → **Choose folder…**, and pick the **`Schoology Archive`** folder inside the repo (create it if it isn't there). The MCP server looks there by default, so Claude finds your archive with no extra setup.
+3. **Archive a course:** open any course in Schoology, click **Archive** (bottom left), then **Archive this course**. Files land in `Schoology Archive/<Course name>/`.
+4. **(Optional) Connect Claude:** install the MCP server and add it to Claude Desktop (see [Set it up](#set-it-up)).
+
+```bash
+mkdir -p schoology_downloader/"Schoology Archive"
+```
+
+The `Schoology Archive/` folder is in `.gitignore`, so your coursework never ends up in git.
 
 ---
 
@@ -108,7 +130,9 @@ The run keeps going if you close the card or leave the page. Reopen the card on 
 
 **Run it again whenever you like.** Only new or changed items are downloaded, so a weekly re-run is quick. Always run it once more before the term ends, because Schoology deletes courses.
 
-**Choosing where files go.** By default they go to `Downloads/Schoology Archive` with no Save dialogs. To use another folder, click the extension's toolbar icon → **Save archives to** → **Choose folder…**. If Chrome asks, pick **Allow on every visit**.
+**Choosing where files go.** Recommended: the `Schoology Archive` folder inside this repo, because that's where the MCP server looks. Click the extension's toolbar icon → **Save archives to** → **Choose folder…** and pick it. If Chrome asks, choose **Allow on every visit**.
+
+If you never choose a folder, files go to `Downloads/Schoology Archive` with no Save dialogs. That works too, but then set `SCHOOLOGY_ARCHIVE` for the MCP server (see [Environment variables](#environment-variables)).
 
 ### What the archive looks like
 
@@ -166,7 +190,9 @@ The overlays only **add** to Schoology's pages. They never click, submit, or cha
 | **Assignment** | A status chip (Missing, Submitted, Late by N days, what a zero would cost), a **What if I get [ ] / pts** box, and the folder's other items |
 | **Grades** | A graph of your grade over the term, distance above the A cutoff, how low each category can drop, each item's impact, what-if scores, and **Plan an upcoming test** ("you need 87% for an A") |
 
-Markers are colour-coded: green **Submitted**, blue **Done, not submitted**, grey **To do**, red **Missing**. Click **To do** / **Done, not submitted** or **Not studied** / **Studied** to flip it in neo-plan.
+Markers are colour-coded: green **Submitted**, blue **Done, not submitted**, grey **To do**, red **Missing**.
+
+**Without neo-plan** (most people): the Grades overlay, the what-if boxes, the Materials folder totals and **Only open work**, and the To Do panels all work from Schoology alone. The parts that come from neo-plan (the **TEST / HW** type tags, **+ Add to neo-plan**, and the clickable **Studied** / **Done** markers) just stay hidden.
 
 Roughly what the Grades overlay tells you (illustrative numbers):
 
@@ -177,11 +203,13 @@ Tests & Quizzes (50%)         can drop to 88.4% and keep the A
 + Plan an upcoming test       need 41/50 (82%) for an A
 ```
 
-> The A cutoff is assumed to be **93%**. If a category shows no weight, type it next to the category name; it's saved per course.
+> **Grading scale:** the overlay assumes A = 93%, A− = 90%, B+ = 87%, B = 83%, and so on down to D = 60%. If your school uses a different scale (for example A = 90%), change `SCALE` and `A_CUTOFF` at the top of [`overlays/grademath.js`](schoology_archiver_extension/overlays/grademath.js) and reload the extension.
+>
+> If a category shows no weight, type it next to the category name; it's saved per course.
 
 ### neo-plan sync
 
-[neo-plan](https://neo-plan.vercel.app) is a separate planner app. The extension can feed it from Schoology. This is optional: the archive and overlays work without it.
+[neo-plan](https://neo-plan.vercel.app) is a separate planner app made alongside this extension. **You can skip this section** unless you have a neo-plan account: the archive, the overlays, and Claude all work without it.
 
 1. In neo-plan, open **Settings** and make an extension token (it starts with `np_`).
 2. Open the extension's Settings (toolbar icon, or the gear on any Schoology page), paste the token into **Token**, and click **Save**.
@@ -195,6 +223,8 @@ Once a token is saved, the extension reads Schoology in the background:
 It only reads (GET requests). neo-plan then files items into the right column, clears work Schoology shows as submitted, and flags what the gradebook marks Missing. It never creates items on its own. **Settings → Courses** lets you change which neo-plan column each class files into.
 
 The token stays in the extension's background worker. Schoology pages never see it.
+
+> The background read is also what gives the MCP server its **snapshot** source. Without a token, Claude still gets **live** data while Chrome is open, and the **archive** when it isn't.
 
 ### Stopping a run
 
@@ -228,7 +258,22 @@ cd mcp
 npm install
 ```
 
-Open Claude Desktop's config file (on macOS, `~/Library/Application Support/Claude/claude_desktop_config.json`) and add the server. Use **absolute paths** — find yours with `which node` and `pwd`:
+Open Claude Desktop's config file and add the server. The easiest way to open it is Claude Desktop → **Settings → Developer → Edit Config**. It lives at:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+Use **absolute paths**. Find yours by running these from the repo folder:
+
+```bash
+which node
+```
+
+```bash
+echo "$(pwd)/mcp/server.js"
+```
+
+Then paste them in. If the file already has other servers, add `"schoology"` inside the existing `"mcpServers"` block:
 
 ```json
 {
@@ -279,7 +324,7 @@ All tools are read-only and return `{ source: "live" | "snapshot" | "archive", a
 | `read_file` | `path` | **archive only** | One archived file: text, PDF text, or an image |
 | `search` | `query`, `course?` | **archive only** | Matches in file names, text, and PDF contents, with snippets |
 
-A `course` argument takes a section ID or any part of the course name, case-insensitive: `"apcs"`, `"comp sci"`, and `"8141837521"` all work. An ambiguous name returns the matching candidates.
+A `course` argument takes a section ID (the number in the course's URL, `/course/<ID>/…`) or any part of the course name, case-insensitive. For a course named "AP Computer Science A", `"computer sci"`, `"ap comp"`, and its section ID all work. An ambiguous name returns the matching candidates.
 
 ### Example prompts
 
@@ -327,7 +372,7 @@ Some classes keep lessons on a public website outside Schoology. List them in [`
 
 - `course` is matched as part of the course name, case-insensitive.
 - `note` is optional. Use it for quirks, like where PDFs live or a URL pattern.
-- The repo already lists sites for AP Comp Sci, Pre-Calculus (the Larson textbook solutions), World History (the textbook PDF Drive folder), and French (a grammar reference).
+- **The file in the repo lists the author's classes** (AP Comp Sci, Pre-Calculus, World History, French). Replace them with your own, or set it to `[]` if your classes don't have outside websites.
 - The file is read once at startup. **Restart Claude Desktop** after editing it.
 
 `fetch_page` is guarded: no cookies, a 15-second timeout, a 15 MB cap, at most 5 redirects, and no requests to local or private network addresses.
@@ -342,7 +387,7 @@ All optional. Set them in the `env` block of the Claude Desktop config.
 | `SCHOOLOGY_EXT_ID` | unset | Only accept the bridge connection from this extension ID (find it in `chrome://extensions`) |
 | `SCHOOLOGY_MCP_HOME` | `~/.schoology-mcp` | Where the snapshot cache, PDF text cache, and downloaded-file cache live |
 
-> **Where is my archive?** The extension saves to `Downloads/Schoology Archive` by default, but the MCP server looks in `../Schoology Archive` next to `mcp/`. Either choose the repo folder as the extension's **Save archives to** folder, or set `SCHOOLOGY_ARCHIVE`:
+> **Where is my archive?** If you followed the [Quick start](#quick-start) and saved archives to the repo's `Schoology Archive` folder, you don't need `SCHOOLOGY_ARCHIVE`. If your archive is somewhere else (such as the extension's default, `Downloads/Schoology Archive`), point the server at it:
 
 ```json
 {
@@ -361,6 +406,16 @@ All optional. Set them in the `env` block of the Claude Desktop config.
 
 ---
 
+## Privacy and safety
+
+- **Your data stays on your computer.** The archive is local files. The MCP server runs locally and only listens on `127.0.0.1`. The only outside services contacted are Schoology, Google (to export Docs you already have access to), neo-plan (only if you add a token), and the public course websites you list in `sites.json`.
+- **Read-only.** The extension only makes GET requests to Schoology. It never submits, posts, or changes anything, and it never starts or touches a quiz (see [Quiz safety](#quiz-safety)).
+- **No passwords or cookies to copy.** It uses the login Chrome already has.
+- **Your archive is gitignored.** Don't remove `Schoology Archive/` from `.gitignore`, or you could push your grades and submissions to GitHub.
+- **Check your school's rules.** Archiving your own coursework for personal study is the intended use. Don't share teachers' materials or answer keys, and follow your school's policies on AI tools.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -374,7 +429,9 @@ All optional. Set them in the `env` block of the Claude Desktop config.
 | **Settings says "Reload extension"** | The background worker didn't answer. Reload it in `chrome://extensions`. |
 | **"neo-plan needs an update"** | That feature needs a newer neo-plan. Everything else still works. |
 | **Claude says `source: "archive"` / extension not connected** | Open Chrome with any Schoology tab. Check **Settings → Claude**. Make sure no quiz tab is open. |
-| **Claude can't find the archive** | Set `SCHOOLOGY_ARCHIVE` to the right folder (see [Environment variables](#environment-variables)) and restart Claude Desktop. |
+| **Claude can't find the archive** | Ask Claude for `status`: it shows the archive path it's using. Save archives to the repo's `Schoology Archive` folder, or set `SCHOOLOGY_ARCHIVE` (see [Environment variables](#environment-variables)), then restart Claude Desktop. |
+| **Grade overlay's letter grades look wrong** | Your school uses a different scale. Edit `SCALE` / `A_CUTOFF` in `overlays/grademath.js` (see [Overlays](#overlays-on-schoology-pages)). |
+| **"+ Add to neo-plan" or type tags missing** | Expected without a neo-plan token. Everything else still works. |
 | **MCP server doesn't appear in Claude** | Use absolute paths for both `node` and `server.js`, run `npm install` in `mcp/`, and fully quit and reopen Claude Desktop. Run `node mcp/server.js` to see errors. |
 | **Log says "bridge: no free port in 47815-47819"** | Something else is using those ports (often a second copy of the server). Quit it, or run without live data. |
 
@@ -486,5 +543,11 @@ git push origin main --tags
 | [`mcp/README.md`](mcp/README.md) | Full MCP server reference |
 | [`docs/MCP-BRIDGE.md`](docs/MCP-BRIDGE.md) | The extension↔MCP WebSocket contract: messages, ops, snapshot shape |
 | [`docs/OVERLAY-UI.md`](docs/OVERLAY-UI.md) | Overlay design: look, grade math, each page |
-| [`EXTENSION-STEPS.md`](EXTENSION-STEPS.md) | The original build plan for the unified extension |
+| [`EXTENSION-STEPS.md`](EXTENSION-STEPS.md) | The original build plan for the unified extension (history) |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version |
+
+---
+
+## License
+
+This project has **no license**, so the default copyright rules apply: all rights are reserved by the author. You can read the code and fork it on GitHub, but you don't have permission to copy, modify, or redistribute it. Open an issue if you'd like to ask.

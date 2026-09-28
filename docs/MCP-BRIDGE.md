@@ -1,9 +1,9 @@
 # Schoology MCP ↔ extension bridge
 
-A local MCP server (`mcp/`, Node) that lets Claude Desktop read Owen's
+A local MCP server (`mcp/`, Node) that lets Claude Desktop read the user's
 Schoology. Read-only. It answers from three sources, best first:
 
-1. **live**: the extension fetches Schoology right now, through Owen's
+1. **live**: the extension fetches Schoology right now, through the user's
    logged-in Chrome. Needs Chrome open and the extension connected.
 2. **snapshot**: the last thing the extension pushed (its 15-minute
    background sync), cached by the MCP on disk so it survives Chrome closing.

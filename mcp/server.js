@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local, read-only MCP server exposing Owen's Schoology coursework to Claude
+// Local, read-only MCP server exposing the user's Schoology coursework to Claude
 // Desktop. Stdio transport — stdout is the MCP channel, so all logging goes
 // to stderr (see src/log.js). See docs/MCP-BRIDGE.md for the extension
 // contract and README.md for setup.

@@ -1,15 +1,15 @@
 # schoology-mcp
 
 A local, read-only [MCP](https://modelcontextprotocol.io) server that lets
-Claude Desktop read Owen's Schoology coursework. It runs entirely on this
-Mac, over stdio — no data leaves the machine except what Claude Desktop
+Claude Desktop read your Schoology coursework. It runs entirely on your
+computer, over stdio — no data leaves the machine except what Claude Desktop
 itself does with it.
 
 It answers from three sources, best first, and every tool result says which
 one it used and how old the data is:
 
 1. **live** — the `schoology_archiver_extension` Chrome extension fetches
-   Schoology right now, through Owen's logged-in Chrome, over a local
+   Schoology right now, through your logged-in Chrome, over a local
    WebSocket bridge. Needs Chrome open and the extension connected.
 2. **snapshot** — the last thing the extension pushed (its background sync),
    cached on disk so it survives Chrome closing.
@@ -53,7 +53,7 @@ using the **absolute path** to `server.js` on this machine:
   "mcpServers": {
     "schoology": {
       "command": "/opt/homebrew/bin/node",
-      "args": ["/Users/owenleung/Documents/Programs/schoology_downloader/mcp/server.js"]
+      "args": ["/Users/you/path/to/schoology_downloader/mcp/server.js"]
     }
   }
 }
