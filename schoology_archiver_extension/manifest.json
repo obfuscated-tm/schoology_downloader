@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Schoology Course Archiver",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "minimum_chrome_version": "116",
   "description": "Archive a Schoology course (files, Google Docs, assignments, your submissions, grades) into your Downloads folder, with an INDEX.md for AI study tools.",
   "action": {

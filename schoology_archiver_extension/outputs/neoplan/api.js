@@ -113,7 +113,8 @@ export const API_OPS = new Set(['today', 'work', 'turnIn', 'putBack', 'remove', 
 async function call(msg) {
   const { server, token } = await getConfig();
   // No token is the same state as a refused one: the panel shows setup.
-  if (!token) return { ok: false, status: 401, data: { error: 'token' } };
+  // `noToken` tells the sync apart from a token neo-plan refused.
+  if (!token) return { ok: false, status: 401, noToken: true, data: { error: 'token' } };
   if (ITEM_OPS.has(msg.op) && !msg.id) return { ok: false, status: 400, data: { error: 'no_id' } };
   let req;
   try { req = buildRequest(server, token, msg); } catch { return { ok: false, status: 400, data: { error: 'body' } }; }

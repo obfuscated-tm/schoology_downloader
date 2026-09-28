@@ -122,3 +122,7 @@ Point Cowork at your archive folder's `<Course>/` subfolder and start with somet
 - **Announcements (`updates.md`)** haven't been tested against a course that has posts yet (none of the current courses have any).
 - **Discussions, media albums, SCORM/web packages** exist in Schoology but none of the current courses use them. They're saved as page text as a fallback; untested.
 - Schoology API keys are disabled for students in this district, so the archiver reads the normal pages.
+
+## Claude (MCP)
+
+`../mcp/` is a local, read-only MCP server that lets Claude Desktop read your Schoology: to-do, grades, assignments, announcements, materials, and every archived file (PDFs as text, plus search). While Chrome is open the extension answers it live, through your login; otherwise it answers from the last background read and the archive folder, and says how old the answer is. **Settings → Claude** shows whether it's connected. Setup and the connection details: `../mcp/README.md` and `../docs/MCP-BRIDGE.md`.

@@ -37,6 +37,7 @@ class NeoplanError extends Error {
     this.op = op;
     this.status = r.status;
     this.code = r.status === 401 ? 'token' : 'neoplan';
+    this.noToken = r.noToken === true; // none saved, as opposed to one neo-plan refused
   }
 }
 
@@ -74,6 +75,8 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
     courses: [],
     errors: [],
     sectionOf: { ...(prev?.sectionOf || {}) },
+    neoplan: false, // whether this run talked to neo-plan at all (docs/MCP-BRIDGE.md)
+    lists: { upcoming: [], overdue: [], events: [] }, // the rows this run read, for the MCP with Chrome closed
   };
   const stored = (await storage.get(KEY_CHECKED))[KEY_CHECKED] || {};
 
@@ -99,8 +102,18 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
   };
 
   try {
-    // 1. neo-plan's course map first: no token means no Schoology request at all.
-    const map = await npCall('courses');
+    // 1. neo-plan's course map first. No token configured is not an error:
+    //    the rest of the run still reads Schoology (courses, home lists,
+    //    events) for the MCP snapshot; every neo-plan-dependent step below
+    //    (gradebooks, open ids, status checks, enrich) is skipped instead.
+    let map = null;
+    let noToken = false;
+    try {
+      map = await npCall('courses');
+    } catch (e) {
+      if (e instanceof NeoplanError && e.noToken) noToken = true;
+      else throw e;
+    }
     const classOf = new Map((map?.courses || []).map((c) => [String(c.section_id), c.class_id ?? null]));
 
     // 2. Courses. Direct fetch first; if Schoology doesn't see the session that
@@ -134,12 +147,14 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
     for (const [key, path] of [['upcoming', '/home/upcoming_submissions_ajax'], ['overdue', '/home/overdue_submissions_ajax']]) {
       const rows = (await get(path, 'homeList')).data;
       snap.counts[key] = rows.length;
+      snap.lists[key] = rows;
       for (const r of rows) itemFor('assignment', r.schoology_id, sectionForRealm(r.realm));
     }
 
     // 4. Upcoming events.
     const events = (await get('/home/upcoming_ajax', 'events')).data;
     snap.counts.events = events.length;
+    snap.lists.events = events;
     for (const ev of events) itemFor('event', ev.schoology_id, sectionForRealm(ev.realm));
 
     // 5. Gradebooks, only for sections neo-plan maps to a column.
@@ -166,52 +181,59 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
     }
 
     // 6. Submission status, only for what neo-plan still has open, oldest-checked first.
-    const open = (await npCall('open'))?.assignments || [];
-    snap.counts.open = open.length;
-    const nowMs = started.getTime();
-    const pick = pickForStatus(open, stored, STATUS_CAP, STATUS_MIN_AGE_MS, nowMs);
-    for (const id of pick) {
-      let st;
-      try {
-        const r = await get(`/assignment/${id}/info`, 'status', { noRedirect: true });
-        st = r.redirected ? { state: 'unknown', redirected: true } : r.data;
-      } catch (e) {
-        if (e instanceof LoginError || e instanceof RateLimitError || e?.name === 'StoppedError' || e?.name === 'AbortError') throw e;
-        snap.errors.push(`status ${id}: ${e.message || e}`);
-        continue;
-      } finally {
-        stored[id] = nowMs;
+    //    Skipped entirely with no token: there is no neo-plan "open" list to check against.
+    if (!noToken) {
+      const open = (await npCall('open'))?.assignments || [];
+      snap.counts.open = open.length;
+      const nowMs = started.getTime();
+      const pick = pickForStatus(open, stored, STATUS_CAP, STATUS_MIN_AGE_MS, nowMs);
+      for (const id of pick) {
+        let st;
+        try {
+          const r = await get(`/assignment/${id}/info`, 'status', { noRedirect: true });
+          st = r.redirected ? { state: 'unknown', redirected: true } : r.data;
+        } catch (e) {
+          if (e instanceof LoginError || e instanceof RateLimitError || e?.name === 'StoppedError' || e?.name === 'AbortError') throw e;
+          snap.errors.push(`status ${id}: ${e.message || e}`);
+          continue;
+        } finally {
+          stored[id] = nowMs;
+        }
+        snap.counts.checked++;
+        if (st.redirected || st.quiz) { snap.counts.redirected++; continue; } // a quiz or an external tool: recorded, skipped
+        if (st.state === 'unknown') continue;
+        const it = itemFor('assignment', id, snap.sectionOf[id] || null);
+        it.submission = { state: st.state };
+        if (st.state === 'submitted') {
+          snap.counts.submitted++;
+          if (typeof st.late === 'boolean') it.submission.late = st.late;
+        }
       }
-      snap.counts.checked++;
-      if (st.redirected || st.quiz) { snap.counts.redirected++; continue; } // a quiz or an external tool: recorded, skipped
-      if (st.state === 'unknown') continue;
-      const it = itemFor('assignment', id, snap.sectionOf[id] || null);
-      it.submission = { state: st.state };
-      if (st.state === 'submitted') {
-        snap.counts.submitted++;
-        if (typeof st.late === 'boolean') it.submission.late = st.late;
-      }
+      const openSet = new Set(open.map(String));
+      for (const id of Object.keys(stored)) if (!openSet.has(id)) delete stored[id];
     }
-    const openSet = new Set(open.map(String));
-    for (const id of Object.keys(stored)) if (!openSet.has(id)) delete stored[id];
 
     // 7. One enrich. Items that carry nothing the server could use are left out.
-    const payload = {
-      fetched_at: fetchedAt,
-      courses: courses.map(({ section_id, title, section_title }) => ({ section_id, title, section_title })),
-      items: [...items.values()].filter((i) => i.section_id || i.submission || i.gradebook),
-    };
-    snap.counts.items = payload.items.length;
-    for (const i of payload.items) if (i.kind === 'assignment' && i.section_id) snap.sectionOf[i.schoology_id] = i.section_id;
-    const res = await npCall('enrich', { body: payload });
-    for (const r of res?.results || []) for (const d of r.did || []) snap.did[d] = (snap.did[d] || 0) + 1;
-    const mapped = new Map((res?.courses || []).map((c) => [String(c.section_id), c]));
-    for (const row of snap.courses) {
-      const m = mapped.get(row.section_id);
-      if (m) { row.class_id = m.class_id ?? null; row.auto = !!m.auto; }
+    //    Skipped entirely with no token: nothing to enrich.
+    if (!noToken) {
+      const payload = {
+        fetched_at: fetchedAt,
+        courses: courses.map(({ section_id, title, section_title }) => ({ section_id, title, section_title })),
+        items: [...items.values()].filter((i) => i.section_id || i.submission || i.gradebook),
+      };
+      snap.counts.items = payload.items.length;
+      for (const i of payload.items) if (i.kind === 'assignment' && i.section_id) snap.sectionOf[i.schoology_id] = i.section_id;
+      const res = await npCall('enrich', { body: payload });
+      for (const r of res?.results || []) for (const d of r.did || []) snap.did[d] = (snap.did[d] || 0) + 1;
+      const mapped = new Map((res?.courses || []).map((c) => [String(c.section_id), c]));
+      for (const row of snap.courses) {
+        const m = mapped.get(row.section_id);
+        if (m) { row.class_id = m.class_id ?? null; row.auto = !!m.auto; }
+      }
+      snap.payload = payload; // the last thing sent, for the harness and for debugging
     }
+    snap.neoplan = !noToken;
     snap.ok = true;
-    snap.payload = payload; // the last thing sent, for the harness and for debugging
   } catch (e) {
     if (e instanceof LoginError) snap.error = 'login';
     else if (e instanceof NeoplanError) snap.error = e.code;

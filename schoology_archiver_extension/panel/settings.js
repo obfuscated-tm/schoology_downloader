@@ -22,6 +22,15 @@ function hint(text, bad = false) {
   h.classList.toggle('bad', bad);
 }
 
+// Read-only "Claude" row: whether the local MCP bridge (docs/MCP-BRIDGE.md)
+// has any server connected right now. One check per draw, like the rest of
+// this page — no polling.
+async function drawMcp() {
+  let r;
+  try { r = await chrome.runtime.sendMessage({ type: 'mcpStatus' }); } catch { /* worker restarting */ }
+  $('npMcpStatus').textContent = r?.connected ? 'Connected' : 'Not running';
+}
+
 async function draw(s) {
   s = s || (await np('settings')).data || {};
   const sel = $('npServer');
@@ -125,5 +134,6 @@ function watchHeight() {
   wire();
   watchHeight();
   await draw();
+  await drawMcp();
   if (!embed) { await drawFolder(); $('npServer').focus(); }
 })();

@@ -135,7 +135,8 @@ body.embed #npSettings .hint { font-size: 12px; line-height: 16px; }
 #npSettings .hint[hidden] { display: none; }
 #npSettings .foot { margin-top: 16px; }
 body.embed #npSettings .foot,
-body.embed #npArchiverRow { display: none; } /* embedded: the gear popover closes itself and has its own Archive button */
+body.embed #npArchiverRow,
+body.embed #npMcpRow { display: none; } /* embedded: the gear popover closes itself and has its own Archive button */
 #npSettings .link:disabled { text-decoration: none; }
 
 /* Courses: each Schoology section and the column it files into. */

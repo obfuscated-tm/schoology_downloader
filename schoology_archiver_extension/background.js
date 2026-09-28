@@ -6,9 +6,11 @@ import { ensureOffscreen, OFFSCREEN_URL } from './offscreen/ensure.js';
 import { PROXY_OPS } from './outputs/archive/chrome-bridge.js';
 import { isValidCourseId, sanitizeOptions, reduceProgress } from './outputs/archive/state.js';
 import { getSavedFolder } from './outputs/archive/folder.js';
+import { connectBridge, pushSnapshot, closeBridge, bridgeConnected } from './outputs/mcp/bridge.js';
 
 const SYNC_ALARM = 'neoplan-sync';
 const SYNC_SOON_ALARM = 'neoplan-sync-soon';
+const MCP_CONNECT_ALARM = 'mcp-connect';
 const SYNC_EVERY_MIN = 15;
 const TAB_SYNC_GAP_MS = 10 * 60_000; // a Schoology page load starts a sync, at most every 10 min
 // What a content script on a Schoology page may ask neo-plan. Never the token,
@@ -226,10 +228,19 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg?.type === 'sync') {
     if (from !== 'page') return false;
     if (msg.op === 'now') {
-      requestSync({ isArchiveRunning, reason: 'panel' }).then(async (r) => reply({ ...(await syncState()), skipped: r?.skipped || null }));
+      requestSync({ isArchiveRunning, reason: 'panel' }).then(async (r) => {
+        pushSnapshot().catch(() => {});
+        reply({ ...(await syncState()), skipped: r?.skipped || null });
+      });
     } else {
       syncState().then(reply);
     }
+    return true;
+  }
+  if (msg?.type === 'mcpStatus') {
+    // The Settings page's read-only "Claude" row: is any MCP server connected right now.
+    if (from !== 'page') return false;
+    reply({ ok: true, connected: bridgeConnected() });
     return true;
   }
   // The shared rate limiter: a panel or content script asks for a slot before
@@ -263,14 +274,25 @@ async function ensureAlarm() {
     await chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_EVERY_MIN, delayInMinutes: 1 });
   }
 }
-chrome.runtime.onInstalled.addListener(() => { ensureAlarm(); });
-chrome.runtime.onStartup.addListener(() => { ensureAlarm(); restorePausedUntil(); });
+// The MCP bridge (docs/MCP-BRIDGE.md): reconnect to any port in 47815-47819
+// not already connected, once a minute (this worker is killed and restarted
+// at will, so the alarm — not just the call below — is what actually keeps
+// it reconnecting).
+async function ensureMcpAlarm() {
+  const a = await chrome.alarms.get(MCP_CONNECT_ALARM);
+  if (!a || a.periodInMinutes !== 1) await chrome.alarms.create(MCP_CONNECT_ALARM, { periodInMinutes: 1, delayInMinutes: 1 });
+}
+chrome.runtime.onInstalled.addListener(() => { ensureAlarm(); ensureMcpAlarm(); });
+chrome.runtime.onStartup.addListener(() => { ensureAlarm(); ensureMcpAlarm(); restorePausedUntil(); });
 ensureAlarm().catch(() => {}); // and whenever the worker starts, in case the alarm was lost
+ensureMcpAlarm().catch(() => {});
 restorePausedUntil().catch(() => {}); // the worker may have been killed mid-pause; pick it back up
+connectBridge(); // never throws; a refused port just never opens
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === SYNC_ALARM) requestSync({ isArchiveRunning, reason: 'alarm' }).catch(() => {});
-  if (alarm.name === SYNC_SOON_ALARM) requestSync({ isArchiveRunning, reason: 'tab' }).catch(() => {});
+  if (alarm.name === SYNC_ALARM) requestSync({ isArchiveRunning, reason: 'alarm' }).then(() => pushSnapshot()).catch(() => {});
+  if (alarm.name === SYNC_SOON_ALARM) requestSync({ isArchiveRunning, reason: 'tab' }).then(() => pushSnapshot()).catch(() => {});
+  if (alarm.name === MCP_CONNECT_ALARM) connectBridge();
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
@@ -290,6 +312,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
 
 async function killEverything() {
   stopSync();
+  closeBridge(); // the next mcp-connect alarm reconnects
   if (archiveActive) chrome.runtime.sendMessage({ type: 'archiveStop', target: 'offscreen' }).catch(() => {});
   const running = await chrome.downloads.search({ state: 'in_progress' });
   await Promise.all(running.filter((d) => d.byExtensionId === chrome.runtime.id)

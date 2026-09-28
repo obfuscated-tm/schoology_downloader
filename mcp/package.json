@@ -1,0 +1,20 @@
+{
+  "name": "schoology-mcp",
+  "version": "1.0.0",
+  "description": "Local, read-only MCP server exposing the user's Schoology coursework (live via a Chrome extension bridge, snapshot cache, or the Schoology Archive) to Claude Desktop.",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "schoology-mcp": "server.js"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "unpdf": "^1.8.1",
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
+  }
+}
