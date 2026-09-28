@@ -794,12 +794,29 @@ export async function openMaterialTool(ctx, { course, url, id, fetch_files = tru
  * websites"): GET only, no cookies, address-guarded, 1h cache. HTML pages
  * come back as readable text + a link list; .md/.txt as is; PDF as text.
  */
-export async function fetchPageTool(ctx, { url }) {
+const PAGE_IMAGE_MAX = 6;
+
+/**
+ * fetch_page. A page with (almost) no text of its own but images — old
+ * textbook sites draw every exercise and solution as a GIF — also gets its
+ * first few images fetched, so Claude can see them. Each goes through
+ * fetchPage, so the same address guard and caps apply.
+ */
+export async function fetchPageTool(ctx, { url, include_images } = {}, { fetchImpl = fetchPage } = {}) {
   if (!url || !url.trim()) throw new Error("fetch_page needs a url");
-  const result = await fetchPage(url.trim());
-  return {
-    source: "web",
-    as_of: result.fetched_at,
-    ...result,
-  };
+  const result = await fetchImpl(url.trim());
+  const out = { source: "web", as_of: result.fetched_at, ...result };
+  const imageOnly = result.kind === "html" && (result.text || "").trim().length < 200 && result.images?.length;
+  if (include_images ?? imageOnly) {
+    out.image_contents = [];
+    for (const src of (result.images || []).slice(0, PAGE_IMAGE_MAX)) {
+      try {
+        const img = await fetchImpl(src);
+        if (img.kind === "image" && img.data) out.image_contents.push({ url: src, mimeType: img.mimeType, data: img.data });
+      } catch (err) {
+        out.image_contents.push({ url: src, error: err.message || String(err) });
+      }
+    }
+  }
+  return out;
 }

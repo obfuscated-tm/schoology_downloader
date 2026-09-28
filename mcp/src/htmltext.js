@@ -56,6 +56,26 @@ export function htmlToText(html, baseUrl) {
     links.push({ text: text || abs, url: abs });
   }
 
+  // Framesets and iframes hold the real page (old textbook sites): list them
+  // as links. Images are listed too; fetch_page shows them when a page is
+  // only images.
+  const images = [];
+  const srcRe = /<(frame|iframe|img)\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>/gi;
+  while ((m = srcRe.exec(String(html)))) {
+    let abs;
+    try {
+      abs = new URL((m[2] ?? m[3] ?? "").trim(), baseUrl).toString();
+    } catch {
+      continue;
+    }
+    if (!/^https?:\/\//i.test(abs)) continue;
+    if (m[1].toLowerCase() === "img") {
+      if (images.length < LINK_CAP) images.push(abs);
+    } else if (links.length < LINK_CAP) {
+      links.push({ text: `${m[1].toLowerCase()}: ${abs}`, url: abs });
+    }
+  }
+
   let text = cleaned
     .replace(/<li\b[^>]*>/gi, "\n- ")
     .replace(/<h[1-6]\b[^>]*>/gi, "\n\n## ")
@@ -71,5 +91,5 @@ export function htmlToText(html, baseUrl) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  return { text, links };
+  return { text, links, images };
 }

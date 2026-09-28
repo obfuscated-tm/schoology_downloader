@@ -54,6 +54,7 @@ function classify(finalUrl, contentType, buf) {
   const lowerUrl = finalUrl.toLowerCase().split(/[?#]/)[0];
   const ct = (contentType || "").toLowerCase();
   if (ct.includes("pdf")) return "pdf";
+  if (/^image\/(png|jpe?g|gif|webp)/.test(ct) || /\.(png|jpe?g|gif|webp)$/.test(lowerUrl)) return "image";
   if (ct.includes("html")) return "html";
   if (ct.includes("markdown")) return "markdown";
   if (ct.includes("text/plain")) return "text";
@@ -64,6 +65,8 @@ function classify(finalUrl, contentType, buf) {
   return "html";
 }
 
+const IMAGE_CAP = 5 * 1024 * 1024;
+
 async function buildResult(finalUrl, contentType, buf) {
   const kind = classify(finalUrl, contentType, buf);
   if (kind === "pdf") {
@@ -71,11 +74,18 @@ async function buildResult(finalUrl, contentType, buf) {
     const { text } = await extractText(pdf, { mergePages: true });
     return { kind, text: Array.isArray(text) ? text.join("\n") : String(text) };
   }
+  if (kind === "image") {
+    if (buf.length > IMAGE_CAP) return { kind, note: `image is ${buf.length} bytes, over the ${IMAGE_CAP}-byte cap` };
+    const ext = finalUrl.toLowerCase().split(/[?#]/)[0].split(".").pop();
+    const fromCt = ((contentType || "").match(/image\/(png|jpeg|gif|webp)/i) || [])[0];
+    const mimeType = fromCt || { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp" }[ext] || "image/png";
+    return { kind, mimeType, data: buf.toString("base64") };
+  }
   if (kind === "markdown" || kind === "text") {
     return { kind, text: buf.toString("utf8") };
   }
   const html = buf.toString("utf8");
-  const { text: whole, links } = htmlToText(html, finalUrl);
+  const { text: whole, links, images } = htmlToText(html, finalUrl);
   // Lesson and article pages put their menus before the first <h1>
   // (apcs.tinocs.com: ~2,500 lines of sidebar). Read from there when that
   // still leaves real content; the links still come from the whole page.
@@ -83,7 +93,7 @@ async function buildResult(finalUrl, contentType, buf) {
   const body = h1 > 0 ? htmlToText(html.slice(h1), finalUrl).text : "";
   const title = (html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1]?.trim() || null;
   const text = body.trim().length >= 200 ? body : whole;
-  return { kind, title, text, links: links.slice(0, LINK_CAP) };
+  return { kind, title, text, links: links.slice(0, LINK_CAP), images: images.slice(0, LINK_CAP) };
 }
 
 /**

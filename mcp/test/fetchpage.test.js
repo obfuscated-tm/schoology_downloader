@@ -29,6 +29,21 @@ before(async () => {
       );
       return;
     }
+    if (req.url === "/frames.html") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end('<html><head><title>eSolutions</title></head><frameset><frame src="nav.html"><frame src="ex.html"></frameset></html>');
+      return;
+    }
+    if (req.url === "/ex.html") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end('<html><body><img src="img/ex_01.gif"><img src="img/ex_02.gif"></body></html>');
+      return;
+    }
+    if (req.url.startsWith("/img/")) {
+      res.writeHead(200, { "content-type": "image/gif" });
+      res.end(Buffer.from("R0lGODlhAQABAAAAACw=", "base64"));
+      return;
+    }
     if (req.url === "/lesson.md") {
       // apcs.tinocs.com: a rendered HTML page at a .md URL, menus before the <h1>
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -137,4 +152,26 @@ test("fetch_page: HTML served at a .md URL is read as HTML, from the first <h1>"
   assert.match(r.text, /^## JAVA Setup/);
   assert.doesNotMatch(r.text, /menu item/);
   assert.ok(r.links.some((l) => (l.url || l.href || l).toString().endsWith("/lesson/next.md")));
+});
+
+test("fetch_page: frames are listed as links", async () => {
+  const r = await fetchPage(`${baseUrl}/frames.html`, { guard: noopGuard });
+  assert.deepEqual(r.links.map((l) => l.url), [`${baseUrl}/nav.html`, `${baseUrl}/ex.html`]);
+});
+
+test("fetch_page: an image URL comes back as an image", async () => {
+  const r = await fetchPage(`${baseUrl}/img/a.gif`, { guard: noopGuard });
+  assert.equal(r.kind, "image");
+  assert.equal(r.mimeType, "image/gif");
+  assert.ok(r.data.length > 0);
+});
+
+test("fetch_page tool: an image-only page brings its images along", async () => {
+  const { fetchPageTool } = await import("../src/tools.js");
+  const fetchImpl = (u) => fetchPage(u, { guard: noopGuard });
+  const r = await fetchPageTool({}, { url: `${baseUrl}/ex.html` }, { fetchImpl });
+  assert.equal(r.image_contents.length, 2);
+  assert.ok(r.image_contents.every((i) => i.mimeType === "image/gif" && i.data));
+  const text = await fetchPageTool({}, { url: `${baseUrl}/lesson.md` }, { fetchImpl });
+  assert.equal(text.image_contents, undefined); // a page with real text doesn't
 });

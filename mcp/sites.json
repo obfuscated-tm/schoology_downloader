@@ -2,6 +2,11 @@
   {
     "course": "AP Comp Sci",
     "url": "https://apcs.tinocs.com/",
-    "note": "Lessons are plain .md pages, e.g. https://apcs.tinocs.com/lesson/A1/A.md"
+    "note": "Lessons are pages like https://apcs.tinocs.com/lesson/A1/A.md (rendered HTML)."
+  },
+  {
+    "course": "Pre-Calculus",
+    "url": "https://college.cengage.com/mathematics/blackboard/content/larson/c1wp2e/",
+    "note": "Cengage eSolutions for Larson, Calculus I with Precalculus 2e (the course's 'Textbook' link). Pages are images; fetch_page returns them. Chapter CC (two digits, 00 = P), section letter s: section exercises CC/CCs/seCCs01.html, review re…02, problem solving ps…03; the worked solution to exercise N (odd only, three digits) is CC/CCs/seCCs01NNN.html, e.g. 03/03b/se03b01001.html. The frameset page with ?CH=&SECT=&TYPE= has no content itself."
   }
 ]

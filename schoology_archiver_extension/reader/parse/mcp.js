@@ -18,6 +18,9 @@ export const MCP_KINDS = new Set(['gradesFull', 'assignmentFull', 'dropboxFull',
 
 const ASSIGNMENT_RE = /\/assignment\/(\d+)(?:[/?#]|$)/;
 const squash = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+// A materials page title carries Schoology's lesson-plan counter ("Textbook 0 lesson plans").
+const pageTitle = (anchor, doc) => (cleanText(anchor) || squash((doc.querySelector('title')?.textContent || '').split(' | ')[0]))
+  .replace(/\s*\d+\s+lesson plans?$/i, '') || null;
 const LOGIN_RE = /s-user-login-form|login-container/;
 
 // A stand-in for SchoologyClient, for the pure DOM parsers (assignment.js,
@@ -81,7 +84,7 @@ function materialFull(doc, url) {
 
   const root = contentRoot(doc);
   const anchor = doc.querySelector('#center-top .page-title, #center-top h2, h2.page-title, .item-title');
-  const title = cleanText(anchor) || squash((doc.querySelector('title')?.textContent || '').split(' | ')[0]) || null;
+  const title = pageTitle(anchor, doc);
   const body_md = htmlToMd(root, client.origin) || null;
   const target = kind === 'link_view' ? (findLinkViewTarget(doc, client) || null) : null;
 
@@ -134,7 +137,7 @@ export function parseMcpKind(kind, text, url = '') {
   const client = urlStub(url);
   const a = parseAssignment(doc, client, url);
   const anchor = doc.querySelector('#center-top .page-title, #center-top h2, h2.page-title');
-  const title = cleanText(anchor) || squash((doc.querySelector('title')?.textContent || '').split(' | ')[0]) || null;
+  const title = pageTitle(anchor, doc);
   const submission = parseSubmissionStatus(doc, url);
   return {
     data: {

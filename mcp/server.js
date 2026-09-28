@@ -249,12 +249,28 @@ async function main() {
     {
       title: "Fetch a public course website page",
       description:
-        "Fetch a public course website page outside Schoology (see status/list_courses for a course's `site`, e.g. AP Comp Sci's lesson pages) — a plain GET, no cookies, address-guarded, 1h cache. HTML becomes readable text plus a link list; .md/.txt come back as is; PDF becomes text.",
+        "Fetch a public course website page outside Schoology (see status/list_courses for a course's `site`, e.g. AP Comp Sci's lesson pages) — a plain GET, no cookies, address-guarded, 1h cache. HTML becomes readable text plus links (frames included); a page that is only images (old textbook exercise/solution pages) comes back with its images; an image URL comes back as an image; .md/.txt as is; PDF as text.",
       inputSchema: {
         url: z.string().describe("a public http(s) url"),
+        include_images: z.boolean().optional().describe("also return the page's images (default: only when the page is just images)"),
       },
     },
-    wrap((ctxArg, args) => fetchPageTool(ctxArg, args)),
+    async (args) => {
+      try {
+        const { data, image_contents, ...meta } = await fetchPageTool(ctx, args || {});
+        const content = [];
+        if (meta.kind === "image" && data) content.push({ type: "image", data, mimeType: meta.mimeType });
+        for (const img of image_contents || []) {
+          if (img.data) content.push({ type: "image", data: img.data, mimeType: img.mimeType });
+        }
+        if (image_contents) meta.images_shown = image_contents.map(({ data: _d, ...rest }) => rest);
+        content.unshift({ type: "text", text: JSON.stringify(meta, null, 2) });
+        return { content };
+      } catch (err) {
+        log(`tool error: ${err.message}`);
+        return toErrorResult(err.message || String(err));
+      }
+    },
   );
 
   const transport = new StdioServerTransport();
