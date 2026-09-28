@@ -14,9 +14,12 @@ import {
 } from "./archive.js";
 import { resolveCourseRef } from "./courses.js";
 import { resolveArchivePath, PathEscapeError } from "./safepath.js";
-import { extractPdfText } from "./pdftext.js";
+import { extractPdfText, extractPdfTextFromBuffer } from "./pdftext.js";
 import { tryLive } from "./result.js";
 import { AmbiguousCourseError, CourseNotFoundError } from "./archive.js";
+import { siteForCourse } from "./sites.js";
+import { readCachedFile, writeCachedFile } from "./filecache.js";
+import { fetchPage } from "./fetchpage.js";
 
 const TEXT_EXTS = new Set([".md", ".txt", ".html", ".htm", ".json"]);
 const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
@@ -46,32 +49,51 @@ export async function statusTool(ctx) {
       section_id: c.section_id,
       last_synced: c.last_synced,
     })),
+    sites: ctx.sites || [],
   };
+}
+
+function withSite(course, name, sites) {
+  const site = siteForCourse(name, sites);
+  return site ? { ...course, site } : course;
 }
 
 export async function listCoursesTool(ctx) {
   const archiveCourses = await listArchivedCourses();
   const archiveBySection = new Map(archiveCourses.map((c) => [c.section_id, c]));
+  const sites = ctx.sites || [];
 
   const live = await tryLive(ctx, "courses", {});
   if (live.ok) {
-    const courses = (live.data || []).map((c) => ({
-      section_id: c.section_id != null ? String(c.section_id) : null,
-      title: c.title,
-      section_title: c.section_title,
-      has_archive: archiveBySection.has(c.section_id != null ? String(c.section_id) : null),
-    }));
+    const courses = (live.data || []).map((c) =>
+      withSite(
+        {
+          section_id: c.section_id != null ? String(c.section_id) : null,
+          title: c.title,
+          section_title: c.section_title,
+          has_archive: archiveBySection.has(c.section_id != null ? String(c.section_id) : null),
+        },
+        c.title || c.section_title,
+        sites,
+      ),
+    );
     return { source: "live", as_of: new Date().toISOString(), courses };
   }
 
   const snap = ctx.cache.getSnapshot();
   if (snap?.snapshot?.courses) {
-    const courses = snap.snapshot.courses.map((c) => ({
-      section_id: c.section_id != null ? String(c.section_id) : null,
-      title: c.title,
-      section_title: c.section_title,
-      has_archive: archiveBySection.has(c.section_id != null ? String(c.section_id) : null),
-    }));
+    const courses = snap.snapshot.courses.map((c) =>
+      withSite(
+        {
+          section_id: c.section_id != null ? String(c.section_id) : null,
+          title: c.title,
+          section_title: c.section_title,
+          has_archive: archiveBySection.has(c.section_id != null ? String(c.section_id) : null),
+        },
+        c.title || c.section_title,
+        sites,
+      ),
+    );
     return {
       source: "snapshot",
       as_of: snap.receivedAt,
@@ -84,12 +106,18 @@ export async function listCoursesTool(ctx) {
     source: "archive",
     as_of: null,
     note: `live unavailable (${live.reason}); no snapshot cached; listing archive folders`,
-    courses: archiveCourses.map((c) => ({
-      section_id: c.section_id,
-      title: c.name,
-      last_synced: c.last_synced,
-      has_archive: true,
-    })),
+    courses: archiveCourses.map((c) =>
+      withSite(
+        {
+          section_id: c.section_id,
+          title: c.name,
+          last_synced: c.last_synced,
+          has_archive: true,
+        },
+        c.name,
+        sites,
+      ),
+    ),
   };
 }
 
@@ -172,6 +200,57 @@ export async function getGradesTool(ctx, { course }) {
   };
 }
 
+/**
+ * Resolve a title fragment to a live assignment id using the live to-do
+ * lists (upcoming/overdue/recent, all courses) and, when a course is given,
+ * that course's live gradebook rows (every gradebook item carries an id).
+ * Returns a de-duplicated (by id) array of { id, title, course }.
+ */
+async function resolveAssignmentIdsLive(ctx, title, course) {
+  const qLower = String(title).toLowerCase();
+  const candidates = [];
+
+  let ref = null;
+  if (course) {
+    try {
+      ref = await resolveCourseRef(ctx, course);
+    } catch {
+      ref = null;
+    }
+  }
+
+  const todoLive = await tryLive(ctx, "todo", {});
+  if (todoLive.ok) {
+    const rows = [
+      ...(todoLive.data.upcoming || []),
+      ...(todoLive.data.overdue || []),
+      ...(todoLive.data.recent || []),
+    ];
+    for (const r of rows) {
+      if (!r || !r.title || !r.title.toLowerCase().includes(qLower)) continue;
+      if (ref?.section_id && r.section_id != null && String(r.section_id) !== String(ref.section_id)) continue;
+      const rid = r.schoology_id ?? r.id;
+      if (rid != null) candidates.push({ id: String(rid), title: r.title, course: r.course || null });
+    }
+  }
+
+  if (ref?.section_id) {
+    const gradesLive = await tryLive(ctx, "grades", { section_id: ref.section_id });
+    if (gradesLive.ok) {
+      for (const row of gradesLive.data?.rows || []) {
+        const rowTitle = row.title || row.item || row.name;
+        if (!rowTitle || !rowTitle.toLowerCase().includes(qLower)) continue;
+        if (row.id == null) continue;
+        candidates.push({ id: String(row.id), title: rowTitle, course: ref.name });
+      }
+    }
+  }
+
+  const byId = new Map();
+  for (const c of candidates) byId.set(c.id, c);
+  return [...byId.values()];
+}
+
 export async function getAssignmentTool(ctx, { course, id, title }) {
   if (!id && !title) {
     throw new Error("get_assignment needs either id or title");
@@ -181,6 +260,23 @@ export async function getAssignmentTool(ctx, { course, id, title }) {
     const live = await tryLive(ctx, "assignment", { id: String(id) });
     if (live.ok) {
       return { source: "live", as_of: new Date().toISOString(), ...live.data };
+    }
+  }
+
+  if (title && !id) {
+    const liveCandidates = await resolveAssignmentIdsLive(ctx, title, course);
+    if (liveCandidates.length > 1) {
+      throw new Error(
+        `Ambiguous title "${title}"; candidates: ${liveCandidates
+          .map((c) => `${c.title} (${c.course || "unknown course"})`)
+          .join(", ")}`,
+      );
+    }
+    if (liveCandidates.length === 1) {
+      const live = await tryLive(ctx, "assignment", { id: liveCandidates[0].id });
+      if (live.ok) {
+        return { source: "live", as_of: new Date().toISOString(), ...live.data };
+      }
     }
   }
 
@@ -536,4 +632,174 @@ export async function searchTool(ctx, { query, course }) {
 
 export function isCourseResolutionError(err) {
   return err instanceof AmbiguousCourseError || err instanceof CourseNotFoundError;
+}
+
+const MAX_MATERIAL_FILES = 5;
+const FILE_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+const FILE_TEXT_EXTS = new Set([".csv", ".txt", ".md", ".json"]);
+const MIME_BY_EXT = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
+/** Look for a `materials` row with this id in whatever the cache has, to turn a bare id into a url. */
+function findMaterialUrlInCache(ctx, id) {
+  for (const entry of ctx.cache.allLiveForOp("materials")) {
+    for (const row of entry.data?.rows || []) {
+      if (row?.id != null && String(row.id) === String(id)) return row.url;
+    }
+  }
+  return null;
+}
+
+async function materializeMaterialFile(f, meta, data) {
+  const nameForExt = meta.name || f.title || f.url || "";
+  const ext = path.extname(String(nameForExt)).toLowerCase();
+  const mime = meta.mime || "";
+
+  if (ext === ".pdf" || mime.includes("pdf")) {
+    const { text, pages } = await extractPdfTextFromBuffer(data, f.url);
+    return { title: f.title || null, url: f.url, name: meta.name || null, kind: "pdf", pages: pages.length, text };
+  }
+  if (FILE_IMAGE_EXTS.has(ext) || mime.startsWith("image/")) {
+    return {
+      title: f.title || null,
+      url: f.url,
+      name: meta.name || null,
+      kind: "image",
+      mimeType: mime || MIME_BY_EXT[ext] || "application/octet-stream",
+      data: data.toString("base64"),
+    };
+  }
+  if (FILE_TEXT_EXTS.has(ext) || mime.startsWith("text/") || mime.includes("csv")) {
+    return {
+      title: f.title || null,
+      url: f.url,
+      name: meta.name || null,
+      kind: "text",
+      text: data.toString("utf8").slice(0, MAX_TEXT_BYTES),
+    };
+  }
+  return {
+    title: f.title || null,
+    url: f.url,
+    name: meta.name || null,
+    kind: "file",
+    size: meta.size ?? data.length,
+  };
+}
+
+async function fetchOneMaterialFile(ctx, f) {
+  if (!f?.url) return { title: f?.title || null, url: f?.url || null, kind: "file", error: "no url" };
+  const cached = await readCachedFile(f.url);
+  if (cached) return materializeMaterialFile(f, cached.meta, cached.data);
+
+  const live = await tryLive(ctx, "file", { url: f.url });
+  if (!live.ok) {
+    return { title: f.title || null, url: f.url, kind: "error", error: `could not fetch (${live.reason})` };
+  }
+  const d = live.data || {};
+  const data = Buffer.from(d.base64 || "", "base64");
+  const meta = { name: d.name || null, mime: d.mime || null, size: d.size ?? data.length, fetchedAt: new Date().toISOString() };
+  await writeCachedFile(f.url, meta, data);
+  return materializeMaterialFile(f, meta, data);
+}
+
+/**
+ * Open one materials-folder item (from a `list_materials` row) live: its
+ * body/target/links, plus — unless `fetch_files: false` — the content of up
+ * to 5 of its attached files (PDF text, CSV/text as text, images as image
+ * content, anything else as name/size).
+ */
+export async function openMaterialTool(ctx, { course, url, id, fetch_files = true }) {
+  if (!url && !id) {
+    throw new Error("open_material needs a url or id from a list_materials row");
+  }
+  if (course) {
+    // Resolution isn't required to build the request, but surfaces a clear
+    // error early if the course itself can't be found.
+    await resolveCourseRef(ctx, course).catch(() => null);
+  }
+
+  let materialUrl = url;
+  if (!materialUrl) {
+    materialUrl = findMaterialUrlInCache(ctx, id);
+    if (!materialUrl) {
+      throw new Error(
+        `Could not resolve id "${id}" to a url; call list_materials first (its rows carry both id and url), or pass the row's url directly`,
+      );
+    }
+  }
+
+  if (!ctx.bridge || !ctx.bridge.isConnected()) {
+    return {
+      source: "unavailable",
+      as_of: new Date().toISOString(),
+      note:
+        "No extension connected; open_material needs live Schoology access to open a materials-folder item. " +
+        "Use search/read_file against the archive instead (it may not cover this course or be current).",
+      url: materialUrl,
+    };
+  }
+
+  const live = await tryLive(ctx, "material", { url: materialUrl });
+  if (!live.ok) {
+    return {
+      source: "unavailable",
+      as_of: new Date().toISOString(),
+      note: `live material fetch failed (${live.reason}); use search/read_file against the archive instead`,
+      url: materialUrl,
+    };
+  }
+
+  const material = live.data || {};
+  const files = Array.isArray(material.files) ? material.files : [];
+  const notes = [];
+  if (material.kind === "link" && material.target) {
+    notes.push("This is a link item; read its target page with fetch_page.");
+  }
+
+  const result = {
+    source: "live",
+    as_of: new Date().toISOString(),
+    url: material.url || materialUrl,
+    kind: material.kind ?? null,
+    title: material.title ?? null,
+    body_md: material.body_md ?? null,
+    target: material.target ?? null,
+    links: material.links ?? [],
+    files,
+  };
+
+  if (fetch_files && files.length > 0) {
+    const toFetch = files.slice(0, MAX_MATERIAL_FILES);
+    result.file_contents = [];
+    for (const f of toFetch) {
+      result.file_contents.push(await fetchOneMaterialFile(ctx, f));
+    }
+    if (files.length > MAX_MATERIAL_FILES) {
+      notes.push(`only the first ${MAX_MATERIAL_FILES} of ${files.length} files were fetched`);
+    }
+  }
+
+  if (notes.length) result.note = notes.join("; ");
+  return result;
+}
+
+/**
+ * Fetch a public course-website page (see docs/MCP-BRIDGE.md "Course
+ * websites"): GET only, no cookies, address-guarded, 1h cache. HTML pages
+ * come back as readable text + a link list; .md/.txt as is; PDF as text.
+ */
+export async function fetchPageTool(ctx, { url }) {
+  if (!url || !url.trim()) throw new Error("fetch_page needs a url");
+  const result = await fetchPage(url.trim());
+  return {
+    source: "web",
+    as_of: result.fetched_at,
+    ...result,
+  };
 }

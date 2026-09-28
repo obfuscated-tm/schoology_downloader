@@ -195,3 +195,206 @@ test('updates: defaults page to 0', async () => {
   assert.equal(r.data.page, 0);
   assert.equal(r.data.posts.length, 1);
 });
+
+// ── material ────────────────────────────────────────────────────────────
+
+test('material: accepts every documented path shape, relative or absolute (same host)', async () => {
+  const shapes = [
+    '/course/1/materials/gp/2',
+    'https://x.schoology.com/course/1/materials/gp/2',
+    '/course/1/materials/link/view/2',
+    '/page/9',
+    '/discussion/9',
+  ];
+  for (const url of shapes) {
+    const client = fakeClient({ texts: new Map([[new URL(url, 'https://x.schoology.com').pathname, { text: 'html' }]]) });
+    const r = await runMcpOp('material', { url }, { client, parse: async () => ({ data: { url, kind: 'x', title: null, body_md: null, target: null, files: [], links: [] } }) });
+    assert.equal(r.ok, true, `${url}: ${JSON.stringify(r)}`);
+  }
+});
+
+test('material: rejects shapes that are not exactly one of the documented ones', async () => {
+  const bad = [
+    '/course/1/materials', // no gp/id
+    '/course/1/materials/gp/2/extra',
+    '/assignment/5/assessment', // a quiz-taking path, not the assignment page
+    '/something/else',
+    'not a url at all',
+  ];
+  for (const url of bad) {
+    const r = await runMcpOp('material', { url }, { client: fakeClient(), parse: async () => { throw new Error('should not fetch'); } });
+    assert.deepEqual(r, { ok: false, error: 'bad_args' }, url);
+  }
+});
+
+test('material: an absolute URL on another host is bad_args, even with a valid-looking path', async () => {
+  const r = await runMcpOp('material', { url: 'https://evil.example.com/course/1/materials/gp/2' }, { client: fakeClient(), parse: async () => { throw new Error('should not fetch'); } });
+  assert.deepEqual(r, { ok: false, error: 'bad_args' });
+});
+
+test('material: gp shape fetches through fetchViaClient (quiz guard applies) and returns the parsed shape', async () => {
+  const client = fakeClient({ texts: new Map([['/course/1/materials/gp/2', { text: 'html' }]]) });
+  const parsed = { url: 'https://x.schoology.com/course/1/materials/gp/2', kind: 'gp', title: 'Syllabus', body_md: 'hi', target: null, files: [{ title: 'a.pdf', url: 'https://x.schoology.com/attachment/1/source/h.pdf', ext: 'pdf' }], links: [] };
+  const r = await runMcpOp('material', { url: '/course/1/materials/gp/2' }, { client, parse: async () => ({ data: parsed }) });
+  assert.deepEqual(r, { ok: true, data: parsed });
+});
+
+test('material: a redirect into an assessment page is error: "quiz", not parsed', async () => {
+  const client = fakeClient({ texts: new Map([['/page/9', { text: 'x', url: 'https://x.schoology.com/course/1/assessments/9' }]]) });
+  const r = await runMcpOp('material', { url: '/page/9' }, { client, parse: async () => { throw new Error('must not parse a quiz page'); } });
+  assert.deepEqual(r, { ok: false, error: 'quiz' });
+});
+
+test('material: assignment shape delegates to the assignment op and reshapes its attachments', async () => {
+  const client = fakeClient({ texts: new Map([['/assignment/9', { text: 'page' }]]) });
+  const parse = async (kind) => (kind === 'assignmentFull'
+    ? { data: { title: 'Essay', type: 'assignment', due: null, instructions_md: 'Write it.', attachments: [{ url: 'https://x.schoology.com/attachment/1/source/h.pdf', title: 'a.pdf' }], submission: null, dropboxUrl: null } }
+    : (() => { throw new Error('unexpected kind'); })());
+  const r = await runMcpOp('material', { url: '/assignment/9' }, { client, parse });
+  assert.equal(r.ok, true);
+  assert.equal(r.data.kind, 'assignment');
+  assert.equal(r.data.title, 'Essay');
+  assert.equal(r.data.body_md, 'Write it.');
+  assert.equal(r.data.target, null);
+  assert.deepEqual(r.data.files, [{ title: 'a.pdf', url: 'https://x.schoology.com/attachment/1/source/h.pdf', ext: 'pdf' }]);
+  assert.deepEqual(r.data.links, []);
+});
+
+test('material: assignment shape surfaces the assignment op\'s error (e.g. login)', async () => {
+  const client = fakeClient({ texts: new Map([['/assignment/9', new LoginError()]]) });
+  const r = await runMcpOp('material', { url: '/assignment/9' }, { client, parse: async () => { throw new Error('n/a'); } });
+  assert.deepEqual(r, { ok: false, error: 'login' });
+});
+
+// ── file ────────────────────────────────────────────────────────────────
+
+function fakeRes({ status = 200, headers = {}, body = new Uint8Array([1, 2, 3]).buffer, url } = {}) {
+  const h = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+  return {
+    status, ok: status >= 200 && status < 300, url,
+    headers: { get: (k) => h.get(String(k).toLowerCase()) ?? null },
+    arrayBuffer: async () => body,
+  };
+}
+
+test('file: bad_args for anything that is not a Schoology attachment/source URL or a Google host', async () => {
+  const client = fakeClient();
+  const bad = [
+    'https://x.schoology.com/attachment/1/download/h.pdf', // not /source/
+    'https://x.schoology.com/course/1/materials', // schoology, but not an attachment
+    'https://evil.example.com/attachment/1/source/h.pdf', // other host
+    'http://x.schoology.com/attachment/1/source/h.pdf', // not https
+    'not a url',
+  ];
+  for (const url of bad) {
+    const r = await runMcpOp('file', { url }, { client, fetch: async () => { throw new Error('should not fetch'); } });
+    assert.deepEqual(r, { ok: false, error: 'bad_args' }, url);
+  }
+});
+
+test('file: a Schoology attachment is fetched directly with credentials included', async () => {
+  const client = fakeClient();
+  let seenOpts;
+  const fetchFn = async (url, opts) => { seenOpts = opts; return fakeRes({ url, headers: { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="notes.pdf"' } }); };
+  const r = await runMcpOp('file', { url: 'https://x.schoology.com/attachment/1/source/h.pdf' }, { client, fetch: fetchFn });
+  assert.equal(r.ok, true);
+  assert.equal(seenOpts.credentials, 'include');
+  assert.equal(r.data.name, 'notes.pdf');
+  assert.equal(r.data.mime, 'application/pdf');
+  assert.equal(r.data.size, 3);
+});
+
+test('file: base64 correctness on a small byte array', async () => {
+  const client = fakeClient();
+  const bytes = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+  const fetchFn = async (url) => fakeRes({ url, body: bytes.buffer });
+  const r = await runMcpOp('file', { url: 'https://x.schoology.com/attachment/1/source/h.bin' }, { client, fetch: fetchFn });
+  assert.equal(r.ok, true);
+  assert.equal(r.data.base64, Buffer.from(bytes).toString('base64'));
+});
+
+test('file: a redirect to Schoology\'s file host (another host) is the file, not a login', async () => {
+  const client = fakeClient();
+  const fetchFn = async () => fakeRes({ url: 'https://files-cdn.schoology.com/abc/h.pdf?sig=1', headers: { 'content-type': 'application/pdf' } });
+  const r = await runMcpOp('file', { url: 'https://x.schoology.com/attachment/1/source/h.pdf' }, { client, fetch: fetchFn });
+  assert.equal(r.ok, true);
+});
+
+test('file: an HTML page where the file should be is error: "login"', async () => {
+  const client = fakeClient();
+  const fetchFn = async (url) => fakeRes({ url, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  const r = await runMcpOp('file', { url: 'https://x.schoology.com/attachment/1/source/h.pdf' }, { client, fetch: fetchFn });
+  assert.deepEqual(r, { ok: false, error: 'login' });
+});
+
+test('file: a Schoology fetch that lands on /login is error: "login" (no tab fallback attempted)', async () => {
+  const client = fakeClient();
+  const fetchFn = async () => fakeRes({ url: 'https://x.schoology.com/login?redir=/attachment/1/source/h.pdf' });
+  const r = await runMcpOp('file', { url: 'https://x.schoology.com/attachment/1/source/h.pdf' }, { client, fetch: fetchFn });
+  assert.deepEqual(r, { ok: false, error: 'login' });
+});
+
+test('file: Content-Length over 15MB is too_large before the body is read', async () => {
+  const client = fakeClient();
+  let read = false;
+  const fetchFn = async (url) => ({
+    status: 200, ok: true, url,
+    headers: { get: (k) => (k.toLowerCase() === 'content-length' ? String(16 * 1024 * 1024) : null) },
+    arrayBuffer: async () => { read = true; return new ArrayBuffer(0); },
+  });
+  const r = await runMcpOp('file', { url: 'https://x.schoology.com/attachment/1/source/h.bin' }, { client, fetch: fetchFn });
+  assert.deepEqual(r, { ok: false, error: 'too_large' });
+  assert.equal(read, false);
+});
+
+test('file: an oversized body with no (or a wrong) Content-Length is still caught by the actual byte length', async () => {
+  const client = fakeClient();
+  const big = new ArrayBuffer(16 * 1024 * 1024);
+  const fetchFn = async (url) => fakeRes({ url, body: big });
+  const r = await runMcpOp('file', { url: 'https://x.schoology.com/attachment/1/source/h.bin' }, { client, fetch: fetchFn });
+  assert.deepEqual(r, { ok: false, error: 'too_large' });
+});
+
+test('file: Google Docs/Slides/Drawings export to PDF, Sheets export to CSV (not xlsx)', async () => {
+  const client = fakeClient();
+  const cases = [
+    ['https://docs.google.com/document/d/abc123/edit', /\/export\?format=pdf$/],
+    ['https://docs.google.com/presentation/d/abc123/edit', /\/export\/pdf$/],
+    ['https://docs.google.com/drawings/d/abc123/edit', /\/export\/pdf$/],
+    ['https://docs.google.com/spreadsheets/d/abc123/edit', /format=csv$/],
+  ];
+  for (const [url, expected] of cases) {
+    let seenUrl;
+    const fetchFn = async (u) => { seenUrl = u; return fakeRes({ url: u, headers: { 'content-type': 'application/octet-stream' } }); };
+    const r = await runMcpOp('file', { url }, { client, fetch: fetchFn });
+    assert.equal(r.ok, true, url);
+    assert.match(seenUrl, expected, url);
+  }
+});
+
+test('file: a Drive file downloads from the uc?export=download URL', async () => {
+  const client = fakeClient();
+  let seenUrl;
+  const fetchFn = async (u) => { seenUrl = u; return fakeRes({ url: u }); };
+  const r = await runMcpOp('file', { url: 'https://drive.google.com/file/d/xyz789/view' }, { client, fetch: fetchFn });
+  assert.equal(r.ok, true);
+  assert.match(seenUrl, /uc\?export=download&id=xyz789/);
+});
+
+test('file: Google returning HTML instead of the file is error: "schoology" with a clear message', async () => {
+  const client = fakeClient();
+  const fetchFn = async (u) => fakeRes({ url: u, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  const r = await runMcpOp('file', { url: 'https://docs.google.com/document/d/abc123/edit' }, { client, fetch: fetchFn });
+  assert.equal(r.ok, false);
+  assert.equal(r.error, 'schoology');
+  assert.match(r.message, /no access|too large/i);
+});
+
+test('file: a Google Form or Drive folder link is bad_args (nothing to download)', async () => {
+  const client = fakeClient();
+  const bad = ['https://docs.google.com/forms/d/e/abc/viewform', 'https://drive.google.com/drive/folders/abc123'];
+  for (const url of bad) {
+    const r = await runMcpOp('file', { url }, { client, fetch: async () => { throw new Error('should not fetch'); } });
+    assert.deepEqual(r, { ok: false, error: 'bad_args' }, url);
+  }
+});

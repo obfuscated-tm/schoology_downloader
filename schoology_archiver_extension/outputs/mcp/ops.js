@@ -1,20 +1,25 @@
-// The six ops the MCP bridge answers a `request` with (docs/MCP-BRIDGE.md,
+// The eight ops the MCP bridge answers a `request` with (docs/MCP-BRIDGE.md,
 // binding — don't change without updating it there too): courses, todo,
-// grades, assignment, updates, materials. Every one is GET-only, through a
-// SchoologyClient and the shared limiter (background/bridge.js supplies the
-// real one), with the same quiz/assessment guard sync/sync.js's `get()` uses:
-// never a quiz-taking URL or an /assessments/ page; a redirect into one is
-// reported as `error: 'quiz'`, never followed. Ids are validated
-// `^\d{1,20}$` before anything is fetched.
+// grades, assignment, updates, materials, material, file. Every one is
+// GET-only, through a SchoologyClient and the shared limiter
+// (background/bridge.js supplies the real one), with the same
+// quiz/assessment guard sync/sync.js's `get()` uses: never a quiz-taking URL
+// or an /assessments/ page; a redirect into one is reported as
+// `error: 'quiz'`, never followed. Ids are validated `^\d{1,20}$` before
+// anything is fetched.
 //
-// Pure of chrome.*: `{ client, parse }` is passed in (a real SchoologyClient +
-// offscreenParse in production, a fake object in tests), the same shape
-// sync/sync.js's runSync takes — so this file, like that one, can be tested
-// without Chrome.
+// Pure of chrome.*: `{ client, parse, fetch }` is passed in (a real
+// SchoologyClient + offscreenParse + the global fetch in production, fakes in
+// tests), the same shape sync/sync.js's runSync takes for `{ client, parse }`
+// — so this file, like that one, can be tested without Chrome. `fetch` is
+// only used by `opFile` (raw bytes; `client`/`parse` are DOM-page-shaped and
+// don't fit downloading a binary attachment).
 
 import { LoginError, isQuizTakingUrl } from '../../reader/client.js';
 import { RateLimitError } from '../../reader/ratelimit.js';
 import { isAssessmentUrl, parseEventsJson, nextEventsUrl } from '../../reader/parse/sync.js';
+import { classifyLink } from '../archive/google.js';
+import { extOf, parseContentDisposition } from '../../util.js';
 
 const ID_RE = /^\d{1,20}$/;
 const MAX_EVENT_PAGES = 20;
@@ -162,7 +167,166 @@ export async function opMaterials({ client, parse }, { section_id, folder_id } =
   });
 }
 
-const OPS = { courses: opCourses, todo: opTodo, grades: opGrades, assignment: opAssignment, updates: opUpdates, materials: opMaterials };
+// ── material / file ─────────────────────────────────────────────────────
+
+// The exact path shapes docs/MCP-BRIDGE.md's `material` row lists. Order
+// doesn't matter; each is checked against the pathname only (no query string).
+const MATERIAL_SHAPES = [
+  { kind: 'gp', re: /^\/course\/\d{1,20}\/materials\/gp\/\d{1,20}$/ },
+  { kind: 'link_view', re: /^\/course\/\d{1,20}\/materials\/link\/view\/\d{1,20}$/ },
+  { kind: 'page', re: /^\/page\/\d{1,20}$/ },
+  { kind: 'discussion', re: /^\/discussion\/\d{1,20}$/ },
+  { kind: 'assignment', re: /^\/assignment\/\d{1,20}$/ },
+];
+
+// The Schoology host a client talks to, derived the same way client.abs()
+// resolves a relative URL — works for both the real SchoologyClient and the
+// fake ones in tests.
+function hostOf(client) {
+  try { return new URL(client.abs('/')).host; } catch { return null; }
+}
+
+// Accepts a bare Schoology path or an absolute `https://{same host}/…` URL;
+// anything else (a relative path that isn't rooted, another host, garbage) is
+// `bad_args`. Returns the path (+ query, unused here) to fetch through the
+// client.
+function materialPath(urlArg, client) {
+  const raw = String(urlArg ?? '');
+  if (/^https?:\/\//i.test(raw)) {
+    let u;
+    try { u = new URL(raw); } catch { throw codeError('bad_args'); }
+    if (u.protocol !== 'https:' || u.host !== hostOf(client)) throw codeError('bad_args');
+    return u.pathname + u.search;
+  }
+  if (!raw.startsWith('/')) throw codeError('bad_args');
+  let u;
+  try { u = new URL(raw, client.abs('/')); } catch { throw codeError('bad_args'); }
+  return u.pathname + u.search;
+}
+
+export async function opMaterial(deps, { url } = {}) {
+  const { client, parse } = deps;
+  return runOp(async () => {
+    const path = materialPath(url, client);
+    const pathname = path.split('?')[0];
+    const shape = MATERIAL_SHAPES.find((s) => s.re.test(pathname));
+    if (!shape) throw codeError('bad_args');
+
+    if (shape.kind === 'assignment') {
+      const id = (pathname.match(/\d{1,20}/) || [])[0];
+      const a = await opAssignment(deps, { id });
+      if (!a.ok) {
+        const e = new Error(a.message || a.error);
+        e.code = a.error;
+        throw e;
+      }
+      return {
+        url: a.data.url, kind: 'assignment', title: a.data.title,
+        body_md: a.data.instructions_md, target: null,
+        files: (a.data.attachments || []).map((f) => ({ title: f.title, url: f.url, ext: extOf(f.url) || null })),
+        links: [],
+      };
+    }
+
+    const r = await get(client, parse, path, 'materialFull');
+    return r.data;
+  });
+}
+
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
+
+// docs/MCP-BRIDGE.md's `file` row: a Schoology attachment source URL (same
+// host as the client, exact shape), or a docs.google.com/drive.google.com
+// link. Anything else is `bad_args`.
+function fileTarget(urlArg, client) {
+  const raw = String(urlArg ?? '');
+  let u;
+  try { u = new URL(raw); } catch { throw codeError('bad_args'); }
+  if (u.protocol !== 'https:') throw codeError('bad_args');
+  if (u.host === hostOf(client)) {
+    if (!/^\/attachment\/[^/]+\/source\/.+/.test(u.pathname)) throw codeError('bad_args');
+    return { kind: 'schoology', url: u.href };
+  }
+  if (u.hostname === 'docs.google.com' || u.hostname === 'drive.google.com') return { kind: 'google', url: u.href };
+  throw codeError('bad_args');
+}
+
+// Base64-encode without spreading the whole buffer into String.fromCharCode
+// (blows the call stack / is needlessly slow on anything but tiny files).
+function toBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+async function bytesFromResponse(res, url) {
+  const len = Number(res.headers.get('content-length') || 0);
+  if (len > MAX_FILE_BYTES) throw codeError('too_large');
+  const buf = await res.arrayBuffer();
+  if (buf.byteLength > MAX_FILE_BYTES) throw codeError('too_large');
+  return {
+    url,
+    name: parseContentDisposition(res.headers.get('content-disposition')) || url,
+    mime: res.headers.get('content-type') || 'application/octet-stream',
+    size: buf.byteLength,
+    base64: toBase64(buf),
+  };
+}
+
+// Sheets export as .xlsx everywhere else in this extension (google.js,
+// for the archive); the MCP's `file` op returns CSV instead so Claude gets
+// plain text it can read without an xlsx parser.
+function googleExportUrl(info) {
+  return info.label === 'Google Sheet' ? info.exportUrl.replace('format=xlsx', 'format=csv') : info.exportUrl;
+}
+
+export async function opFile({ client, fetch: fetchFn } = {}, { url } = {}) {
+  return runOp(async () => {
+    const target = fileTarget(url, client);
+    const doFetch = fetchFn || fetch;
+
+    if (target.kind === 'schoology') {
+      await client.throttle?.();
+      let res;
+      try {
+        res = await doFetch(target.url, { credentials: 'include' });
+      } catch (e) {
+        throw e instanceof TypeError ? codeError('login') : e;
+      }
+      let finalUrl;
+      try { finalUrl = new URL(res.url || target.url); } catch { finalUrl = new URL(target.url); }
+      // A source attachment normally redirects to Schoology's file host, so a
+      // different final host is fine; a sign-in page (or any HTML where a
+      // file should be) is not.
+      const onLogin = /(^|\.)schoology\.com$/i.test(finalUrl.host) && finalUrl.pathname.startsWith('/login');
+      if (res.status === 401 || res.status === 403 || onLogin || /text\/html/i.test(res.headers?.get?.('content-type') || '')) {
+        throw codeError('login');
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await bytesFromResponse(res, target.url);
+    }
+
+    const info = classifyLink(target.url);
+    if (info.kind !== 'google' && info.kind !== 'drivefile') throw codeError('bad_args');
+    const res = await doFetch(googleExportUrl(info), { credentials: 'include' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (/text\/html/i.test(res.headers.get('content-type') || '')) {
+      const e = codeError('schoology');
+      e.message = 'Google showed a page instead of the file (no access, or too large to export)';
+      throw e;
+    }
+    return await bytesFromResponse(res, target.url);
+  });
+}
+
+const OPS = {
+  courses: opCourses, todo: opTodo, grades: opGrades, assignment: opAssignment, updates: opUpdates,
+  materials: opMaterials, material: opMaterial, file: opFile,
+};
 
 /** Dispatches one `{ op, args }` request. `deps` is `{ client, parse }`. Always resolves. */
 export async function runMcpOp(op, args, deps) {

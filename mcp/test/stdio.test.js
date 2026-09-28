@@ -71,6 +71,9 @@ test("real stdio server: initialize, tools/list, tools/call status + list_course
     });
     assert.ok(initResult.serverInfo);
     assert.equal(initResult.serverInfo.name, "schoology-mcp");
+    assert.ok(typeof initResult.instructions === "string" && initResult.instructions.length > 0);
+    assert.match(initResult.instructions, /live/i);
+    assert.match(initResult.instructions, /archive/i);
 
     child.stdin.write(
       JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n",
@@ -88,6 +91,8 @@ test("real stdio server: initialize, tools/list, tools/call status + list_course
       "list_materials",
       "read_file",
       "search",
+      "open_material",
+      "fetch_page",
     ]) {
       assert.ok(names.includes(expected), `expected tool ${expected} to be registered`);
     }

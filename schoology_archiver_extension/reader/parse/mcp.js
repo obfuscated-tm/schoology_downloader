@@ -6,14 +6,15 @@
 // Needs a global DOMParser.
 
 import { cleanText } from '../../util.js';
-import { htmlToMd } from '../md.js';
+import { htmlToMd, resolveUrl } from '../md.js';
 import { parseGrades } from './grades.js';
 import { parseAssignment, parseDropbox } from './assignment.js';
-import { parseFolderRows } from './materials.js';
+import { parseFolderRows, contentRoot, findSourceAttachments, findLinkViewTarget } from './materials.js';
 import { parseFeedPage } from './feed.js';
 import { folderIdOf, parseSubmissionStatus, parseDueText, isLoginPage } from './sync.js';
+import { classifyLink } from '../../outputs/archive/google.js';
 
-export const MCP_KINDS = new Set(['gradesFull', 'assignmentFull', 'dropboxFull', 'materialsFull', 'updatesFeed']);
+export const MCP_KINDS = new Set(['gradesFull', 'assignmentFull', 'dropboxFull', 'materialsFull', 'updatesFeed', 'materialFull']);
 
 const ASSIGNMENT_RE = /\/assignment\/(\d+)(?:[/?#]|$)/;
 const squash = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -48,6 +49,66 @@ function materialsRows(doc, url) {
   });
 }
 
+// The `material` op's path shapes, matched against a page's own final URL to
+// tell a /page/ from a /materials/gp/ from a /materials/link/view/ (the
+// `assignment` shape is handled entirely in ops.js — it delegates to the
+// `assignment` op instead of fetching here). Kept in sync with
+// outputs/mcp/ops.js's MATERIAL_SHAPES.
+const MATERIAL_URL_KIND = [
+  { kind: 'gp', re: /\/materials\/gp\/\d{1,20}(?:[/?#]|$)/ },
+  { kind: 'link_view', re: /\/materials\/link\/view\/\d{1,20}(?:[/?#]|$)/ },
+  { kind: 'page', re: /\/page\/\d{1,20}(?:[/?#]|$)/ },
+  { kind: 'discussion', re: /\/discussion\/\d{1,20}(?:[/?#]|$)/ },
+];
+
+// Sheets export as .xlsx elsewhere (google.js); the `file` op returns CSV, so
+// a `material` row's `files` entries carry the ext `file` would actually
+// produce.
+function googleFileExt(info) {
+  if (info.kind === 'drivefile') return null;
+  return info.ext === 'xlsx' ? 'csv' : info.ext || null;
+}
+
+// A `material` op result: title/body for whatever the page is, `target` for
+// a link/view wrapper, `files` for a gp document's real downloads plus any
+// Google Docs/Slides/Sheets/Drive links found in the content, and `links` for
+// everything else outbound.
+function materialFull(doc, url) {
+  const client = urlStub(url);
+  let pathname = url || '';
+  try { pathname = new URL(url).pathname; } catch { /* tests without a url */ }
+  const kind = (MATERIAL_URL_KIND.find((k) => k.re.test(pathname)) || {}).kind || 'other';
+
+  const root = contentRoot(doc);
+  const anchor = doc.querySelector('#center-top .page-title, #center-top h2, h2.page-title, .item-title');
+  const title = cleanText(anchor) || squash((doc.querySelector('title')?.textContent || '').split(' | ')[0]) || null;
+  const body_md = htmlToMd(root, client.origin) || null;
+  const target = kind === 'link_view' ? (findLinkViewTarget(doc, client) || null) : null;
+
+  const files = [];
+  if (kind === 'gp') {
+    for (const att of findSourceAttachments(doc, client)) {
+      files.push({ title: title || att.fingerprint, url: att.url, ext: att.ext || null });
+    }
+  }
+  const seen = new Set(files.map((f) => f.url));
+  const links = [];
+  for (const a of root.querySelectorAll('a[href]')) {
+    const href = a.getAttribute('href');
+    if (!href || href.startsWith('#') || /^javascript:/i.test(href)) continue;
+    const resolved = resolveUrl(href, client.origin);
+    if (!resolved || seen.has(resolved) || /\/attachment\/[^/]+\/source\//.test(resolved)) continue;
+    seen.add(resolved);
+    const info = classifyLink(resolved);
+    if (info.kind === 'google' || info.kind === 'drivefile') {
+      files.push({ title: cleanText(a) || info.label, url: resolved, ext: googleFileExt(info) });
+    } else {
+      links.push({ title: cleanText(a) || resolved, url: resolved });
+    }
+  }
+  return { url, kind, title, body_md, target, files, links };
+}
+
 /** kind (one of MCP_KINDS) + response text → { data } | { login: true }. */
 export function parseMcpKind(kind, text, url = '') {
   if (!MCP_KINDS.has(kind)) throw new Error(`unknown parse kind: ${kind}`);
@@ -64,6 +125,7 @@ export function parseMcpKind(kind, text, url = '') {
   if (isLoginPage(doc)) return { login: true };
   if (kind === 'gradesFull') return { data: parseGrades(doc) };
   if (kind === 'materialsFull') return { data: materialsRows(doc, url) };
+  if (kind === 'materialFull') return { data: materialFull(doc, url) };
   if (kind === 'dropboxFull') {
     const d = parseDropbox(doc, urlStub(url));
     return { data: { grade: d.grade || null, comments: d.comments || [] } };

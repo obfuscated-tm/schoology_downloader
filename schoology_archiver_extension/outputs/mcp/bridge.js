@@ -47,7 +47,9 @@ function ensurePing() {
 // A fresh SchoologyClient per request, on the shared limiter — the same
 // construction sync/runner.js's requestSync uses, tab-mode fallback included
 // (ops.js falls back to an open Schoology tab itself when a direct fetch
-// isn't signed in).
+// isn't signed in). `fetch` is the plain global one — only `opFile` (raw
+// attachment/Google bytes) uses it, on the same shared limiter via
+// client.throttle().
 async function newDeps() {
   const client = new SchoologyClient({
     host: await schoologyHost(),
@@ -55,7 +57,7 @@ async function newDeps() {
     acquire: (s) => limiter.acquire(s),
     onRateLimited: () => { limiter.pause(); persistPausedUntil(); },
   });
-  return { client, parse: offscreenParse };
+  return { client, parse: offscreenParse, fetch: (...args) => fetch(...args) };
 }
 
 async function respond(ws, id, r) {

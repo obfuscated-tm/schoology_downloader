@@ -70,6 +70,16 @@ export class DiskCache {
   getLive(op, args) {
     return this.state.live[this.liveKey(op, args)] || null;
   }
+
+  /** All cached live entries for a given op, regardless of args (used to hunt for a row by id). */
+  allLiveForOp(op) {
+    const prefix = `${op}:`;
+    const out = [];
+    for (const [key, entry] of Object.entries(this.state.live)) {
+      if (key.startsWith(prefix)) out.push(entry);
+    }
+    return out;
+  }
 }
 
 export function cacheExistsSync(cachePath = CACHE_PATH) {

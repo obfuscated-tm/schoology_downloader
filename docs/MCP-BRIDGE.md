@@ -68,7 +68,15 @@ results; everything is plain JSON.
 | `updates` | `section_id`, `page` (default 0) | `{ section_id, page, posts: [{ author, date, body_md }] }` |
 | `materials` | `section_id`, `folder_id` (optional, default root) | `{ section_id, folder_id, rows: [{ kind, title, id, url, due? }] }` (folders, files, assignments, pages, links…) |
 
+| `material` | `url` (a Schoology path from a `materials` row: `/course/{c}/materials/gp/{id}`, `/course/{c}/materials/link/view/{id}`, `/page/{id}`, `/discussion/{id}`, `/assignment/{id}`) | `{ url, kind, title, body_md, target, files: [{ title, url, ext }], links: [{ title, url }] }`. `target` is where a link/view item really points (`findLinkViewTarget`); `files` are the real `/attachment/…/source/…` downloads (`findSourceAttachments`) and Google Docs/Slides/Sheets/Drive links found on the page; fields it can't find are `null`/`[]` |
+| `file` | `url` (a Schoology `/attachment/…/source/…` URL, or a `docs.google.com` / `drive.google.com` link) | `{ url, name, mime, size, base64 }`. Google Docs/Slides/Drawings are exported to PDF, Sheets to CSV, Drive files downloaded, using the archiver's `classifyLink` export URLs. Refuses anything over 15 MB (`error: 'too_large'`) and any other host (`bad_args`) |
+
 `args` ids are validated as `^\d{1,20}$`; anything else is `bad_args`.
+`material` paths must match one of the shapes above exactly (no other
+Schoology page, never a quiz). `file` bytes are fetched with the user's
+cookies (Schoology, Google) in direct mode; when only tab mode works for
+Schoology, answer `error: 'login'` rather than trying to pass bytes through
+the tab.
 
 ## The snapshot
 
@@ -84,11 +92,22 @@ reads the Schoology parts (courses, home lists, events) and skips every
 neo-plan step (course map, gradebooks, open ids, status checks, enrich).
 With a token, behaviour is unchanged.
 
+## Course websites (MCP only, no extension)
+
+Some classes live partly outside Schoology (APCS: `apcs.tinocs.com`, lesson
+pages are plain `.md`; math: a site linking the textbook PDFs). The MCP
+fetches public `http(s)` pages itself with Node's `fetch`: GET only, no
+cookies, 15 MB cap, never a loopback/private/link-local address (resolve the
+host first). HTML → readable text with its links listed, `.md`/`.txt` as is,
+PDF → text. `mcp/sites.json` maps courses to their sites so Claude knows
+they exist.
+
 ## MCP disk state
 
 `~/.schoology-mcp/cache.json`: the last snapshot and the last live result
-per (op, args), each with the time it was fetched. PDF text extracted for
-search/read is cached under `~/.schoology-mcp/pdftext/`, keyed by path and
+per (op, args), each with the time it was fetched. Files fetched live
+(`file` op or the web) are cached under `~/.schoology-mcp/files/` by URL.
+PDF text extracted for search/read is cached under `~/.schoology-mcp/pdftext/`, keyed by path and
 mtime.
 
 ## Course identity

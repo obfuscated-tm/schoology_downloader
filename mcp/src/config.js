@@ -20,6 +20,7 @@ export const MCP_HOME = path.resolve(
 
 export const CACHE_PATH = path.join(MCP_HOME, "cache.json");
 export const PDFTEXT_DIR = path.join(MCP_HOME, "pdftext");
+export const FILES_DIR = path.join(MCP_HOME, "files");
 
 export const BRIDGE_PORT_RANGE = [47815, 47816, 47817, 47818, 47819];
 

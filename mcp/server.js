@@ -14,6 +14,7 @@ import { Bridge } from "./src/bridge.js";
 import { DiskCache } from "./src/cache.js";
 import { log } from "./src/log.js";
 import { toToolResult, toErrorResult } from "./src/result.js";
+import { loadSites } from "./src/sites.js";
 import {
   statusTool,
   listCoursesTool,
@@ -24,7 +25,18 @@ import {
   listMaterialsTool,
   readFileTool,
   searchTool,
+  openMaterialTool,
+  fetchPageTool,
 } from "./src/tools.js";
+
+const INSTRUCTIONS = `Schoology data comes from two places, and every tool result says which one answered plus how old it is (\`source\`, \`as_of\`).
+
+- **live**: fetched right now through the user's logged-in Chrome via the extension bridge. Current as of the call. Needs Chrome open with the extension connected (check \`status\`).
+- **archive**: a local, disk-based copy of Schoology. Only as fresh as its last-synced time (see \`status\`'s \`archived_courses\`), and doesn't cover every course.
+
+Prefer live tools (\`get_todo\`, \`get_grades\`, \`list_materials\` -> \`open_material\`, \`get_assignment\`, \`get_updates\`) for anything current: what's due, grades, assignments, or what's in a course right now. \`search\` and \`read_file\` only ever look at the archive — use them for older material, full-text search, or when live is unavailable, not as a first stop for current coursework. Always tell the user when an answer came from the archive or a cached snapshot, and how old it is.
+
+Some courses also have a public website outside Schoology (listed in \`status\`/\`list_courses\` as \`site\`, from \`sites.json\` — e.g. AP Comp Sci's lesson pages at apcs.tinocs.com). Use \`fetch_page\` to read those directly.`;
 
 async function main() {
   const cache = new DiskCache();
@@ -37,9 +49,14 @@ async function main() {
   });
   await bridge.start();
 
-  const ctx = { bridge, cache };
+  const sites = await loadSites();
 
-  const server = new McpServer({ name: "schoology-mcp", version: "1.0.0" });
+  const ctx = { bridge, cache, sites };
+
+  const server = new McpServer(
+    { name: "schoology-mcp", version: "1.0.0" },
+    { instructions: INSTRUCTIONS },
+  );
 
   const wrap = (fn) => async (args) => {
     try {
@@ -56,7 +73,7 @@ async function main() {
     {
       title: "Schoology bridge status",
       description:
-        "Is the Chrome extension connected? Host, bridge port, last snapshot time, archive path, and archived courses with their last-synced time.",
+        "Is the Chrome extension connected? Host, bridge port, last snapshot time, archive path, archived courses with their last-synced time, and any course websites from sites.json.",
       inputSchema: {},
     },
     wrap(statusTool),
@@ -67,7 +84,7 @@ async function main() {
     {
       title: "List Schoology courses",
       description:
-        "List the user's Schoology courses: live course list, else the last snapshot, else the archive folders. Notes which courses have an archive.",
+        "List the user's Schoology courses: live course list, else the last snapshot, else the archive folders. Notes which courses have an archive, and attaches a `site` (from sites.json) for courses with a public website outside Schoology.",
       inputSchema: {},
     },
     wrap(listCoursesTool),
@@ -102,7 +119,7 @@ async function main() {
     {
       title: "Get one assignment or quiz",
       description:
-        "Fetch an assignment/quiz by Schoology id (live-capable) or by a title fragment (archive search). Optionally scope the title search to one course. Returns instructions, due date, grade, and the attachment folder listing.",
+        "Fetch an assignment/quiz by Schoology id (live), or by a title fragment: resolved to an id live via the to-do lists and (course-scoped) gradebook, then fetched live; falls back to an archive search if that fails. Optionally scope the title search to one course. Returns instructions, due date, grade, and the attachment folder listing.",
       inputSchema: {
         course: z.string().optional().describe("section_id or name fragment, to scope a title search"),
         id: z.string().optional().describe("numeric Schoology assignment id"),
@@ -150,7 +167,7 @@ async function main() {
     {
       title: "Read a file from the archive",
       description:
-        "Read one file from the Schoology Archive by path (relative to the archive root). Markdown/text/html/json return as text (~200KB cap); PDFs return extracted text (cached, page-marked); images return as image content (5MB cap); .url files return the URL; other types (xlsx, docx, video, …) return name/size/path only.",
+        "Read one file from the local Schoology Archive by path (relative to the archive root) — the archive ONLY, which may be stale and doesn't cover every course. For current course content, use list_materials -> open_material instead. Markdown/text/html/json return as text (~200KB cap); PDFs return extracted text (cached, page-marked); images return as image content (5MB cap); .url files return the URL; other types (xlsx, docx, video, …) return name/size/path only.",
       inputSchema: {
         path: z.string().describe("path relative to the archive root"),
       },
@@ -180,13 +197,64 @@ async function main() {
     {
       title: "Search the archive",
       description:
-        "Case-insensitive search over file names, markdown/text/html/json contents, and PDF text (cached extraction) in the Schoology Archive. Optionally scoped to one course. Returns path + snippet per hit, capped.",
+        "Case-insensitive search over file names, markdown/text/html/json contents, and PDF text (cached extraction) — the local Schoology Archive ONLY, which may be stale and doesn't cover every course. For current course content, use list_materials -> open_material instead. Optionally scoped to one course. Returns path + snippet per hit, capped.",
       inputSchema: {
         query: z.string().describe("search text"),
         course: z.string().optional().describe("section_id or case-insensitive name fragment"),
       },
     },
     wrap((ctxArg, args) => searchTool(ctxArg, args)),
+  );
+
+  server.registerTool(
+    "open_material",
+    {
+      title: "Open a materials-folder item, live",
+      description:
+        "Open one item from a list_materials row live (its body/target/links), and fetch the content of up to 5 of its attached files: PDF text, CSV/text as text, images as image content, anything else as name/size. A link item's target page can then be read with fetch_page. Needs the extension connected; falls back to saying so if not.",
+      inputSchema: {
+        course: z.string().optional().describe("section_id or case-insensitive name fragment"),
+        url: z.string().optional().describe("the url field from a list_materials row"),
+        id: z.string().optional().describe("the id field from a list_materials row (used if url is omitted)"),
+        fetch_files: z.boolean().optional().describe("fetch attached files' content too (default true)"),
+      },
+    },
+    async (args) => {
+      try {
+        const data = await openMaterialTool(ctx, args || {});
+        const content = [];
+        const meta = { ...data };
+        if (Array.isArray(meta.file_contents)) {
+          meta.file_contents = meta.file_contents.map((fc) => {
+            if (fc.kind === "image") {
+              content.push({ type: "text", text: `Image file: ${fc.title || fc.name || fc.url}` });
+              content.push({ type: "image", data: fc.data, mimeType: fc.mimeType });
+              const { data: _omit, ...rest } = fc;
+              return rest;
+            }
+            return fc;
+          });
+        }
+        content.unshift({ type: "text", text: JSON.stringify(meta, null, 2) });
+        return { content };
+      } catch (err) {
+        log(`tool error: ${err.message}`);
+        return toErrorResult(err.message || String(err));
+      }
+    },
+  );
+
+  server.registerTool(
+    "fetch_page",
+    {
+      title: "Fetch a public course website page",
+      description:
+        "Fetch a public course website page outside Schoology (see status/list_courses for a course's `site`, e.g. AP Comp Sci's lesson pages) — a plain GET, no cookies, address-guarded, 1h cache. HTML becomes readable text plus a link list; .md/.txt come back as is; PDF becomes text.",
+      inputSchema: {
+        url: z.string().describe("a public http(s) url"),
+      },
+    },
+    wrap((ctxArg, args) => fetchPageTool(ctxArg, args)),
   );
 
   const transport = new StdioServerTransport();
