@@ -550,4 +550,4 @@ git push origin main --tags
 
 ## License
 
-This project has **no license**, so the default copyright rules apply: all rights are reserved by the author. You can read the code and fork it on GitHub, but you don't have permission to copy, modify, or redistribute it. Open an issue if you'd like to ask.
+[MIT](LICENSE). You can use, copy, modify, and share this code, including in your own projects, as long as you keep the copyright notice. It comes with no warranty.
