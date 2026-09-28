@@ -6,9 +6,7 @@ A free Chrome extension (plus an optional Claude add-on) for students on any sch
 
 ![Extension 1.10.0](https://img.shields.io/badge/extension-1.10.0-2563eb) ![Claude add-on 1.1.0](https://img.shields.io/badge/Claude%20add--on-1.1.0-d97706) ![License: MIT](https://img.shields.io/badge/license-MIT-16a34a)
 
-<p align="center">
-  <img src="docs/images/archive.png" width="520" alt="The Archive card: pick a course and click Archive this course">
-</p>
+![The Archive card: pick a course and click Archive this course](docs/images/archive.png)
 
 ---
 
@@ -22,10 +20,7 @@ Run it again any time, and it only grabs what's new. If a teacher edits a file, 
 
 ### ✅ See what's due, class by class
 
-<table>
-<tr>
-<td width="45%"><img src="docs/images/home.png" alt="The To Do column grouped by class"></td>
-<td>
+![The To Do column grouped by class](docs/images/home.png)
 
 Your Schoology home page gets a cleaner **To Do** list:
 
@@ -36,13 +31,9 @@ Your Schoology home page gets a cleaner **To Do** list:
 
 Each class's own page gets the same list for just that class.
 
-</td>
-</tr>
-</table>
-
 ### 📈 Know exactly where your grade stands
 
-<p align="center"><img src="docs/images/grades.png" width="720" alt="The Grades page with the course graph, distance above an A, and each score's impact"></p>
+![The Grades page with the course graph, distance above an A, and each score's impact](docs/images/grades.png)
 
 On any class's **Grades** page you'll see:
 
@@ -55,13 +46,13 @@ On any class's **Grades** page you'll see:
 
 ### 📂 Spot missing work in your Materials
 
-<p align="center"><img src="docs/images/materials.png" width="720" alt="Materials page with per-folder status and scores"></p>
+![Materials page with per-folder status and scores](docs/images/materials.png)
 
 Every folder shows what's still open ("1 missing · 1 to turn in") and your score in it. Tick **Only open work** to hide everything you've already finished.
 
 ### 📝 Check your status on any assignment
 
-<p align="center"><img src="docs/images/assignment.png" width="720" alt="Assignment page with a Missing chip and a what-if box"></p>
+![Assignment page with a Missing chip and a what-if box](docs/images/assignment.png)
 
 Each assignment shows whether it's **Missing**, **Submitted**, or **Late**, plus a **What if I get \_\_ / \_\_ pts** box to see how a score would change your grade.
 
