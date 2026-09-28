@@ -7,6 +7,7 @@ Entries before extension 1.10.0 / MCP 1.1.0 were reconstructed from the git hist
 ## Unreleased
 
 - MIT license.
+- README rewritten as a friendly, picture-first guide with screenshots (`docs/images/`); technical detail moved to a collapsible reference at the bottom.
 - Repo README and this changelog, written for anyone setting it up (any school's Schoology, neo-plan optional, recommended archive location, grading-scale note).
 - Removed the legacy Python downloader (`schoology_downloader.py`, `HOW_TO_RUN.txt`); the extension replaces it.
 
