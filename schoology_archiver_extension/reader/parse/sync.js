@@ -8,11 +8,6 @@
 // null (can't tell), never false; a status it can't read is "unknown".
 
 import { cleanText } from '../../util.js';
-import { htmlToMd } from '../md.js';
-import { parseGrades } from './grades.js';
-import { parseAssignment, parseDropbox } from './assignment.js';
-import { parseFolderRows } from './materials.js';
-import { parseFeedPage } from './feed.js';
 
 const ASSIGNMENT_RE = /\/assignment\/(\d+)(?:[/?#]|$)/;
 const EVENT_RE = /\/event\/(\d+)\/profile(?:[/?#]|$)/;
@@ -401,41 +396,11 @@ export function parseAssignmentPage(doc, url) {
 
 // ── One entry point for text that arrives over the wire (the offscreen parser) ──
 
-const DOC_KINDS = new Set(['homeList', 'events', 'gradebook', 'status', 'gradesFull', 'assignmentFull', 'dropboxFull', 'materialsFull']);
+const DOC_KINDS = new Set(['homeList', 'events', 'gradebook', 'status']);
 
 /** Pages Schoology serves when the session has ended. */
 export function isLoginPage(doc) {
   return !!doc.querySelector('form#s-user-login-form, #login-container');
-}
-
-// A stand-in for SchoologyClient, for the pure DOM parsers (assignment.js,
-// materials.js) that only ever call client.abs()/client.origin to resolve a
-// relative href — never client.getText/getDoc. `url` is the page's own final
-// URL (offscreen/parse.js's third argument), used as the base.
-function urlStub(url) {
-  let origin = '';
-  try { origin = new URL(url).origin; } catch { /* no url given (tests) */ }
-  return { origin, abs: (u) => { try { return new URL(u, url || origin || undefined).href; } catch { return u; } } };
-}
-
-// The MCP `materials` op's flatter shape (docs/MCP-BRIDGE.md): { kind, title,
-// id, url }, from parseFolderRows' richer per-kind rows (materials.js).
-function materialsRows(doc, url) {
-  const client = urlStub(url);
-  const rows = parseFolderRows(doc, client) || [];
-  return rows.map((r) => {
-    if (r.kind === 'folder') return { kind: 'folder', title: r.title, id: folderIdOf(r.url) || r.key || null, url: r.url || null };
-    if (r.kind === 'document') {
-      const first = r.files?.[0] || r.links?.[0];
-      return { kind: 'document', title: r.title, id: r.key || null, url: first?.url || r.otherUrl || null };
-    }
-    if (r.kind === 'quiz') return { kind: 'quiz', title: r.title, id: r.key || null, url: r.url || null };
-    const idFrom = (re) => (String(r.url || '').match(re) || [])[1] || null;
-    if (r.kind === 'assignment') return { kind: 'assignment', title: r.title, id: idFrom(ASSIGNMENT_RE), url: r.url || null };
-    if (r.kind === 'page') return { kind: 'page', title: r.title, id: idFrom(/\/page\/(\d+)/), url: r.url || null };
-    if (r.kind === 'discussion') return { kind: 'discussion', title: r.title, id: idFrom(/\/discussion\/(\d+)/), url: r.url || null };
-    return { kind: 'other', title: r.title, id: r.key || null, url: r.url || null };
-  });
 }
 
 /**
@@ -450,16 +415,6 @@ export function parseKind(kind, text, url = '') {
     if (/s-user-login-form|login-container/.test(String(text))) return { login: true };
     throw new Error('course list was not JSON');
   }
-  // The updates feed does its own JSON-unwrap + DOMParser per post (feed.js);
-  // it isn't one page-wide document, so it's handled before the generic path.
-  if (kind === 'updatesFeed') {
-    if (/s-user-login-form|login-container/.test(String(text))) return { login: true };
-    const origin = urlStub(url).origin;
-    const posts = parseFeedPage(text).map((p) => ({
-      author: p.author, date: p.date, body_md: p.bodyEl ? htmlToMd(p.bodyEl, origin) : '',
-    }));
-    return { data: posts };
-  }
   if (!DOC_KINDS.has(kind)) throw new Error(`unknown parse kind: ${kind}`);
   const html = kind === 'homeList' || kind === 'events' ? wrappedHtml(text) : String(text ?? '');
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -467,29 +422,5 @@ export function parseKind(kind, text, url = '') {
   if (kind === 'homeList') return { data: parseHomeList(doc) };
   if (kind === 'events') return { data: parseUpcomingEvents(doc) };
   if (kind === 'gradebook') return { data: parseGradebookRows(doc) };
-  if (kind === 'gradesFull') return { data: parseGrades(doc) };
-  if (kind === 'materialsFull') return { data: materialsRows(doc, url) };
-  if (kind === 'assignmentFull') {
-    const client = urlStub(url);
-    const a = parseAssignment(doc, client, url);
-    const anchor = doc.querySelector('#center-top .page-title, #center-top h2, h2.page-title');
-    const title = cleanText(anchor) || squash((doc.querySelector('title')?.textContent || '').split(' | ')[0]) || null;
-    const submission = parseSubmissionStatus(doc, url);
-    return {
-      data: {
-        title,
-        type: a.isQuiz ? 'quiz' : a.isExternalTool ? 'external_tool' : 'assignment',
-        due: a.due ? parseDueText(a.due) : null,
-        instructions_md: a.bodyEl ? htmlToMd(a.bodyEl, client.origin) : null,
-        attachments: a.attachments.map(({ url: u, title: t }) => ({ url: u, title: t })),
-        submission: submission.quiz ? null : { state: submission.state, ...(typeof submission.late === 'boolean' ? { late: submission.late } : {}) },
-        dropboxUrl: a.dropboxUrl || null,
-      },
-    };
-  }
-  if (kind === 'dropboxFull') {
-    const d = parseDropbox(doc, urlStub(url));
-    return { data: { grade: d.grade || null, comments: d.comments || [] } };
-  }
   return { data: parseSubmissionStatus(doc, url) };
 }
