@@ -5,8 +5,10 @@
 // background.js calls connectBridge() when the worker starts and on its
 // 1-minute `mcp-connect` alarm (MV3 kills this worker at will, so the alarm —
 // not just the one call at startup — is what actually keeps reconnecting).
-// A refused port just never opens: nothing here throws or logs beyond what
-// Chrome's own devtools console already does for a failed WebSocket.
+// A port is probed with a plain fetch before any WebSocket is opened: Chrome
+// files every refused WebSocket on chrome://extensions → Errors (it can't be
+// caught), while a refused fetch just rejects. So with Claude Desktop closed,
+// the once-a-minute check leaves nothing behind.
 
 import { SchoologyClient } from '../../reader/client.js';
 import { limiter, persistPausedUntil } from '../../sync/limiter.js';
@@ -75,8 +77,25 @@ function onMessage(ws, ev) {
     .then((r) => respond(ws, msg.id, r), (e) => respond(ws, msg.id, { ok: false, error: 'schoology', message: String(e?.message || e) }));
 }
 
-function connectPort(port) {
-  if (sockets.has(port)) return;
+const probing = new Set();
+
+// Is anything listening on `port`? The MCP server's WebSocket server answers
+// a plain GET (426 Upgrade Required); no-cors, since only reachability matters.
+async function listening(port) {
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(2000) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function connectPort(port) {
+  if (sockets.has(port) || probing.has(port)) return;
+  probing.add(port);
+  const up = await listening(port);
+  probing.delete(port);
+  if (!up || sockets.has(port)) return;
   let ws;
   try {
     ws = new WebSocket(`ws://127.0.0.1:${port}`);
@@ -97,7 +116,7 @@ function connectPort(port) {
 
 /** Connect to every port in range not already connected. Worker start + the `mcp-connect` alarm. */
 export function connectBridge() {
-  for (const port of PORTS) connectPort(port);
+  for (const port of PORTS) connectPort(port).catch(() => {});
 }
 
 /** Push the latest Snapshot to every open socket. Called after each sync run finishes. */
