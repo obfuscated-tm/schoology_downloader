@@ -1,0 +1,177 @@
+/* neo-plan's look, for the Settings page: as a normal tab, and framed with
+   ?embed=1 inside the Overlay gear popover on a Schoology page. Values come
+   from neo-plan's DESIGN.md / src/app/globals.css, prefixed --np- so nothing
+   here collides with the host page when framed. Light only (DESIGN.md §2):
+   no prefers-color-scheme block, on purpose. */
+
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 400 600; /* variable: the latin subset next/font ships, 400 and 600 from one file */
+  font-display: swap;
+  src: url("fonts/public-sans-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-latin-400.woff2") format("woff2");
+}
+
+:root {
+  --np-bg: #f6f5f1;
+  --np-surface: #ffffff;
+  --np-ink: #1b1c1e;
+  --np-ink-dim: #5c5f66;
+  --np-line: #e2e0da;
+  --np-time: #d9480f;
+
+  --np-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  --np-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --np-radius: 6px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--np-bg);
+  color: var(--np-ink);
+  font-family: var(--np-sans);
+  font-size: 15px;
+  line-height: 20px;
+}
+
+/* Framed in the gear popover: compact, and transparent so the popover's own
+   surface shows through (under a dark theme the frame is inverted along with
+   the popover, so it can't paint a surface of its own). */
+body.embed {
+  background: transparent;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.np button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.np button:disabled { opacity: 1; cursor: default; color: var(--np-ink-dim); }
+.np :focus-visible {
+  outline: 2px solid var(--np-ink);
+  outline-offset: 2px;
+}
+.np .mono { font-family: var(--np-mono); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
+.np .dim { color: var(--np-ink-dim); }
+.np .link {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--np-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+body.embed .np .mono,
+body.embed .np .link { font-size: 12px; line-height: 16px; }
+
+#npSettings {
+  padding: 16px;
+  max-width: 68ch;
+  margin: 0 auto;
+}
+body.embed #npSettings {
+  padding: 0 0 4px; /* the popover has its own padding: line up with its labels */
+  max-width: none;
+  width: 100%;
+}
+#npSettings h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 600;
+}
+body.embed #npSettings h1 { display: none; } /* the popover already says Settings › neo-plan */
+
+#npSettings .row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--np-line);
+}
+body.embed #npSettings .row { grid-template-columns: 76px 1fr; padding: 8px 0; }
+#npSettings .row:last-of-type { border-bottom: 0; }
+#npSettings label,
+#npSettings .rowname { font-weight: 600; }
+#npSettings .field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+#npSettings select,
+#npSettings input {
+  font: inherit;
+  min-width: 0;
+  flex: 1;
+  padding: 4px 8px;
+  color: var(--np-ink);
+  background: var(--np-surface);
+  border: 1px solid var(--np-line);
+  border-radius: var(--np-radius);
+}
+#npSettings .btn {
+  padding: 4px 12px;
+  border: 1px solid var(--np-line);
+  border-radius: var(--np-radius);
+  background: var(--np-surface);
+}
+#npSettings .hint { grid-column: 2; margin: 0; font-size: 13px; line-height: 18px; color: var(--np-ink-dim); }
+body.embed #npSettings .hint { font-size: 12px; line-height: 16px; }
+#npSettings .hint.bad { color: var(--np-time); }
+#npSettings .hint[hidden] { display: none; }
+#npSettings .foot { margin-top: 16px; }
+body.embed #npSettings .foot,
+body.embed #npArchiverRow { display: none; } /* embedded: the gear popover closes itself and has its own Archive button */
+#npSettings .link:disabled { text-decoration: none; }
+
+/* Courses: each Schoology section and the column it files into. */
+#npSettings #npCourses[hidden] { display: none; }
+#npSettings #npCourses h2 {
+  margin: 24px 0 8px;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+}
+body.embed #npSettings #npCourses h2 { margin: 16px 0 6px; font-size: 13px; line-height: 16px; }
+#npSettings .courses { list-style: none; margin: 0; padding: 0; }
+#npSettings .courses li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 40%);
+  gap: 4px 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--np-line);
+}
+#npSettings .courses li:last-child { border-bottom: 0; }
+#npSettings .courses .name { min-width: 0; overflow-wrap: anywhere; }
+#npSettings .courses .sect { display: block; font-size: 13px; line-height: 18px; color: var(--np-ink-dim); }
+body.embed #npSettings .courses .sect { font-size: 11px; line-height: 14px; }
+#npSettings .courses .pick { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#npSettings .courses select { flex: 1; min-width: 0; }
+#npSettings .courses .auto { flex: none; color: var(--np-ink-dim); }
+#npSettings #npCoursesHint { margin-top: 8px; }
+/* Narrow (the gear popover, or a thin window): the column picker gets its own
+   full-width line under the course, instead of a clipped sliver beside it. */
+@media (max-width: 420px) {
+  #npSettings .courses li { grid-template-columns: minmax(0, 1fr); }
+}
+
+[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

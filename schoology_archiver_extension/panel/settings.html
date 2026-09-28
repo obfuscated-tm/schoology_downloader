@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Schoology Archiver Settings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <section id="npSettings" class="np" aria-labelledby="npSettingsTitle">
+    <h1 id="npSettingsTitle">Settings</h1>
+    <div class="row">
+      <label for="npServer">Server</label>
+      <div class="field"><select id="npServer"></select></div>
+    </div>
+    <div class="row">
+      <label for="npTokenInput" id="npTokenLabel">Token</label>
+      <div class="field" id="npTokenSet" hidden>
+        <span id="npTokenMasked" class="mono"></span>
+        <button id="npTokenRemove" class="btn">Remove</button>
+      </div>
+      <div class="field" id="npTokenNew" hidden>
+        <input id="npTokenInput" type="password" autocomplete="off" spellcheck="false" placeholder="np_…">
+        <button id="npTokenSave" class="btn">Save</button>
+      </div>
+      <p class="hint" id="npTokenHint">Make one in neo-plan Settings.</p>
+    </div>
+    <div class="row" id="npSyncRow" hidden>
+      <span class="rowname">Schoology</span>
+      <div class="field">
+        <span id="npSyncTime" class="mono dim"></span>
+        <button id="npSyncNow" class="link">Check now</button>
+      </div>
+      <p class="hint" id="npSyncHint" role="status" hidden></p>
+    </div>
+    <div id="npCourses" hidden>
+      <h2 id="npCoursesTitle">Courses</h2>
+      <ul id="npCourseList" class="courses" aria-labelledby="npCoursesTitle"></ul>
+      <p class="hint" id="npCoursesHint" role="status" hidden></p>
+    </div>
+    <div class="row" id="npArchiverRow">
+      <span class="rowname">Save to</span>
+      <div class="field">
+        <span id="npFolderName" class="mono dim"></span>
+        <button id="npFolderChoose" class="link">Choose folder…</button>
+        <button id="npFolderClear" class="link" hidden>Use Downloads</button>
+      </div>
+      <p class="hint" id="npFolderHint" role="status" hidden></p>
+    </div>
+    <div class="foot"><button id="npSettingsDone" class="link">Done</button></div>
+  </section>
+  <script type="module" src="settings.js"></script>
+</body>
+</html>

@@ -10,19 +10,21 @@ import { nextEventsUrl } from '../../reader/parse/sync.js';
 import { rowSignature, eventChangeKeys, shouldSkip } from '../../reader/changes.js';
 import { Saver, FolderWriter, DownloadsWriter, ARCHIVE_ROOT } from './saver.js';
 import { classifyLink, prepareGoogle } from './google.js';
+import * as bridge from './chrome-bridge.js';
 
 const MAX_DEPTH = 20;
 const join = (...parts) => parts.filter(Boolean).join('/');
 const basename = (p) => p.split('/').pop();
 
 export class Archiver {
-  constructor({ host, courseId, tabId, folder, options, log, progress }) {
+  constructor({ host, courseId, tabId, folder, options, log, progress, onCourseName }) {
     this.folder = folder; // FileSystemDirectoryHandle, or null to use Chrome downloads
     this.host = host;
     this.courseId = courseId;
     this.options = options;
     this.log = log;
     this.progress = progress;
+    this.onCourseName = onCourseName || (() => {});
     this.ctrl = new AbortController();
     this.signal = this.ctrl.signal;
     this.client = new SchoologyClient({ host, tabId, log, signal: this.signal });
@@ -52,8 +54,9 @@ export class Archiver {
     const { doc: materials } = await this.client.init(this.courseId);
     const courseName = courseNameFrom(materials) || `Course ${this.courseId}`;
     this.log(`Course: ${courseName}`);
+    this.onCourseName(courseName);
 
-    const stored = (await chrome.storage.local.get(this.storageKey))[this.storageKey];
+    const stored = (await bridge.storageGet(this.storageKey))[this.storageKey];
     this.manifest = stored || {
       version: 1, host: this.host, courseId: this.courseId, courseName,
       courseDir: sanitizeName(courseName, 100), files: {}, items: {}, runs: [],
@@ -74,10 +77,8 @@ export class Archiver {
 
     let uiDisabled = false;
     try {
-      if (chrome.downloads.setUiOptions) {
-        await chrome.downloads.setUiOptions({ enabled: false });
-        uiDisabled = true;
-      }
+      await bridge.downloadsSetUiEnabled(false);
+      uiDisabled = true;
     } catch { /* not supported */ }
 
     this.skippedCount = 0;
@@ -100,7 +101,7 @@ export class Archiver {
       if (this.stopped) await this.saveProgressOnly();
       else await this.finish();
     } finally {
-      if (uiDisabled) try { await chrome.downloads.setUiOptions({ enabled: true }); } catch { /* ignore */ }
+      if (uiDisabled) try { await bridge.downloadsSetUiEnabled(true); } catch { /* ignore */ }
     }
     return {
       stats: this.saver.stats, errors: this.errors, stopped: this.stopped, location: this.location,
@@ -560,7 +561,7 @@ export class Archiver {
     });
     this.manifest.runs = this.manifest.runs.slice(-50);
     delete this.manifest.currentRun;
-    await chrome.storage.local.set({ [this.storageKey]: this.manifest });
+    await bridge.storageSet({ [this.storageKey]: this.manifest });
   }
 
   // ── Wrap-up: removed items, INDEX.md, manifest ───────────────────────
@@ -591,7 +592,7 @@ export class Archiver {
     await this.saver.writeFile('_archive/manifest.json', snapshot, 'application/json');
 
     delete this.manifest.currentRun;
-    await chrome.storage.local.set({ [this.storageKey]: this.manifest });
+    await bridge.storageSet({ [this.storageKey]: this.manifest });
   }
 }
 
@@ -658,11 +659,11 @@ const reviewTabs = new Set();
 // Cancel every download this extension still has running and close review tabs.
 export async function killActiveWork() {
   try {
-    const running = await chrome.downloads.search({ state: 'in_progress' });
+    const running = await bridge.downloadsSearch({ state: 'in_progress' });
     await Promise.all(running.filter((d) => d.byExtensionId === chrome.runtime.id)
-      .map((d) => chrome.downloads.cancel(d.id).catch(() => {})));
+      .map((d) => bridge.downloadsCancel(d.id).catch(() => {})));
   } catch { /* ignore */ }
-  await Promise.all([...reviewTabs].map((id) => chrome.tabs.remove(id).catch(() => {})));
+  await Promise.all([...reviewTabs].map((id) => bridge.tabsRemove(id).catch(() => {})));
   reviewTabs.clear();
 }
 
@@ -671,98 +672,33 @@ async function reviewAttemptsInTab(url, count, signal) {
   const reviews = [];
   for (let i = 0; i < count; i++) {
     throwIfStopped(signal);
-    const tab = await chrome.tabs.create({ url, active: false });
+    const tab = await bridge.tabsCreate({ url, active: false });
     reviewTabs.add(tab.id);
-    chrome.storage.session.set({ reviewTabs: [...reviewTabs] }).catch(() => {});
+    bridge.reviewTabsSet([...reviewTabs]).catch(() => {});
     try {
-      await waitForLoad(tab.id, 45_000, signal);
-      const clicked = await pollInTab(tab.id, clickViewLink, [i], (r) => r && (r.clicked || r.fatal), 20_000, signal);
+      await bridge.tabsWaitLoaded(tab.id, signal, 45_000);
+      const clicked = await pollInTab(tab.id, (id) => bridge.tabClickView(id, i), (r) => r && (r.clicked || r.fatal), 20_000, signal);
       if (!clicked?.clicked) throw new Error(clicked?.fatal || 'no "View" link found');
-      const got = await pollInTab(tab.id, readReview, [], (r) => r && r.count > 0 && r.stable, 30_000, signal);
+      const got = await pollInTab(tab.id, (id) => bridge.tabReadReview(id), (r) => r && r.count > 0 && r.stable, 30_000, signal);
       if (!got?.count) throw new Error('review did not load');
       reviews.push({ label: clicked.label || `Attempt ${i + 1}`, text: got.text });
     } finally {
       reviewTabs.delete(tab.id);
-      chrome.storage.session.set({ reviewTabs: [...reviewTabs] }).catch(() => {});
-      try { await chrome.tabs.remove(tab.id); } catch { /* closed */ }
+      bridge.reviewTabsSet([...reviewTabs]).catch(() => {});
+      try { await bridge.tabsRemove(tab.id); } catch { /* closed */ }
     }
   }
   return reviews;
 }
 
-async function pollInTab(tabId, func, args, done, timeoutMs, signal) {
+async function pollInTab(tabId, run, done, timeoutMs, signal) {
   const until = Date.now() + timeoutMs;
   let last;
   while (Date.now() < until) {
     throwIfStopped(signal);
-    const [res] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
-    last = res?.result;
+    last = await run(tabId);
     if (done(last)) return last;
     await sleep(1000, signal);
   }
   return last;
-}
-
-// Runs inside the quiz page.
-function clickViewLink(index) {
-  if (!location.host.endsWith('schoology.com')) return { fatal: 'redirected away from Schoology (logged out?)' };
-  const links = [...document.querySelectorAll('a')].filter((a) => a.textContent.trim() === 'View');
-  if (!links[index]) return { clicked: false };
-  const link = links[index];
-  if (/start|resume|begin|continue|submit|retake/i.test(link.textContent)) return { fatal: 'refused: not a View link' };
-  const row = link.closest('tr, [role="row"]');
-  const label = row ? `Attempt ${(row.innerText || '').trim().split(/\s+/)[0]}` : '';
-  link.click();
-  return { clicked: true, label };
-}
-
-// Runs inside the quiz page after "View": each question is an <article>; answers live in inputs.
-function readReview() {
-  const render = (el) => {
-    let s = '';
-    for (const n of el.childNodes) {
-      if (n.nodeType === 3) { s += n.textContent; continue; }
-      if (n.nodeType !== 1) continue;
-      const t = n.tagName;
-      if (t === 'SCRIPT' || t === 'STYLE' || n.getAttribute('aria-hidden') === 'true') continue;
-      if (t === 'INPUT') {
-        if (n.type === 'radio' || n.type === 'checkbox') s += n.checked ? '[x] ' : '[ ] ';
-        else if (n.type !== 'hidden') s += ` [answer: ${n.value || '—'}] `;
-        continue;
-      }
-      if (t === 'TEXTAREA') { s += ` [answer: ${n.value || '—'}] `; continue; }
-      if (t === 'SELECT') { s += ` [answer: ${n.options[n.selectedIndex]?.text || '—'}] `; continue; }
-      const inner = render(n);
-      s += /^(P|DIV|LI|TR|H\d|ARTICLE|SECTION|UL|OL|TABLE)$/.test(t) ? `\n${inner}\n` : inner;
-    }
-    return s;
-  };
-  const arts = [...document.querySelectorAll('article')];
-  const text = arts.map((a) => render(a)
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\s*\n\s*(\[answer:[^\]]*\])\s*\n\s*/g, ' $1 ')
-    .replace(/\n\s*\n+/g, '\n')
-    .trim()).join('\n\n---\n\n');
-  const prev = window.__archiverLastLen;
-  window.__archiverLastLen = text.length;
-  return { count: arts.length, stable: prev === text.length && text.length > 0, text };
-}
-
-function waitForLoad(tabId, timeoutMs, signal) {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(new StoppedError());
-    const cleanup = () => {
-      clearTimeout(timer);
-      chrome.tabs.onUpdated.removeListener(fn);
-      signal?.removeEventListener('abort', onAbort);
-    };
-    const onAbort = () => { cleanup(); reject(new StoppedError()); };
-    const timer = setTimeout(() => { cleanup(); reject(new Error('page load timed out')); }, timeoutMs);
-    const fn = (id, info) => {
-      if (id === tabId && info.status === 'complete') { cleanup(); resolve(); }
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-    chrome.tabs.onUpdated.addListener(fn);
-    chrome.tabs.get(tabId).then((t) => { if (t.status === 'complete') fn(tabId, { status: 'complete' }); }, () => {});
-  });
 }

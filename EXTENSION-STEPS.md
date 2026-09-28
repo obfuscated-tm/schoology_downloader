@@ -74,8 +74,8 @@ alert when a new grade posts. Check what Schoology Plus already does
 first so this doesn't duplicate it.
 
 **7. Teacher updates** (ext)
-A digest in the side panel, grouped by class and newest first, with
-unread markers. Keep writing `updates.md` to the archive.
+A digest overlay, grouped by class and newest first, with unread
+markers. Keep writing `updates.md` to the archive.
 
 **8. Study and Claude** (neo)
 A local MCP server over neo-plan's database (read-only) and the Schoology

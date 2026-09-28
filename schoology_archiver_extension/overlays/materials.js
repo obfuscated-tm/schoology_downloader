@@ -56,7 +56,7 @@ const RIGHT_CSS = MARK_CSS + `
 
 export async function start({
   doc = document, loc = location, call = np, getDoc = fetchDoc, store = chromeStore(),
-  send = (m) => chrome.runtime.sendMessage(m), now = () => Date.now(),
+  now = () => Date.now(),
 } = {}) {
   const section = (loc.pathname.match(/^\/course\/(\d+)/) || [])[1];
   if (!section) return null;
@@ -111,7 +111,7 @@ export async function start({
 
     const last = archive?.runs?.at?.(-1)?.at;
     const syncBtn = el('button', 'linkbtn', last ? 'Sync now' : 'Archive now');
-    syncBtn.title = 'Archive this course again in the side panel (only new or changed things are saved)';
+    syncBtn.title = 'Archive this course again (only new or changed things are saved)';
     onClick(syncBtn, syncNow);
     arch.replaceChildren(
       document.createTextNode(last ? `Archive saved ${ago(last, now())}` : 'Not archived yet'),
@@ -123,10 +123,15 @@ export async function start({
   async function syncNow() {
     syncNote = 'Opening the archiver…';
     drawStrip();
-    let r = null;
-    try { r = await send({ type: 'archiveCourse', courseId: section }); } catch { /* worker gone */ }
-    syncNote = r?.ok ? (r.opened ? 'Archiving in the side panel' : 'Open the archiver (toolbar icon) to start')
-      : 'Reload the extension, then this page';
+    try {
+      const { start: startCard } = await import('./archive.js');
+      const cardApi = startCard({ loc });
+      await cardApi.open();
+      await cardApi.startNow();
+      syncNote = '';
+    } catch {
+      syncNote = 'Reload the extension, then this page';
+    }
     drawStrip();
   }
 

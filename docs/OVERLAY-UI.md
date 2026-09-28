@@ -39,13 +39,76 @@ Only `--accent` and `--accent-soft` change with the theme (`overlays/theme.js`);
 else above is constant regardless of theme, light or dark — a dark theme gets its dark
 look from inverting the whole page (below), not from swapping these tokens.
 
-## Themes and settings
+## Archive button and settings
 
-A gear next to the Overlay switch (bottom left, shown only while the overlay is on)
-opens a small popover: a grid of themes, and the Materials "Percent beside scores"
-checkbox. Both are one setting object in `chrome.storage.local`
+Beside the Overlay switch (bottom left, shown only while the overlay is on) sit two
+square buttons: **Archive**, then a gear.
+
+The Archive button (`overlays/switch.js`) opens `overlays/archive.js`'s card —
+dimmed page, inset card, ×/Esc/click-outside closes, closed shadow root via
+`createHost`, same pattern as `overlays/launcher.js`. The card is only a UI: the
+archive job itself runs in the extension's offscreen document (it needs
+`DOMParser`, same as the neo-plan sync's `offscreen/parse.js`; `offscreen/archive.js`
+shares that one document, routed by message `target`), owned by `background.js` as
+a single job at a time, mutually exclusive with the neo-plan sync. Closing the card
+or navigating away from Schoology does not stop the job — reopening the card on any
+Schoology page (even a different course, even a different tab) shows the live
+status, count and log, pushed over a `chrome.runtime.connect({ name: 'archive-card'
+})` port and mirrored in `chrome.storage.session` so a freshly opened card catches
+up immediately. On a course page (`/course/(\d+)`) the card knows its `courseId`
+from the URL; the course name comes from the page (falling back to `Course
+123`). The card's own message contract: `archiveStart {courseId, options}` (the
+course's host comes from `sender.url`, not anything the page claims),
+`archiveStop`, `archiveState`. Alt+Shift+K / `killEverything()` stops a running
+archive job too.
+
+Because the offscreen document only has `chrome.runtime`, everything else
+(`chrome.downloads.*`, `chrome.scripting.executeScript`, `chrome.tabs.*`,
+`chrome.storage.*`) is proxied to the service worker through
+`outputs/archive/chrome-bridge.js`: the same exported functions take a "direct"
+branch when called from the service worker and a `chrome.runtime.sendMessage`
+proxy branch otherwise, so `background.js`'s `archiveProxy` handler is just an
+allowlist (`PROXY_OPS`) of those same functions, accepted only from the offscreen
+document's own URL.
+
+Files default to the Downloads folder, as before (no picker). A custom folder
+(File System Access handle, kept in IndexedDB — `outputs/archive/folder.js`) can be
+chosen from Settings, in its own tab only (the picker is refused in a
+cross-origin iframe): a "Save archives to" row there shows Downloads or the chosen
+folder's name, with Choose/Change and Clear. The offscreen document reads the same
+IndexedDB handle (same extension origin) and uses it only if
+`queryPermission({ mode: 'readwrite' })` is already `'granted'` — there is no user
+gesture in an offscreen document to call `requestPermission`, so a folder that has
+lost permission just falls back to Downloads with one log line, not a prompt.
+
+The gear opens a small popover, three groups:
+
+1. **Theme** — a grid of themes (below).
+2. **Grades** — the "Percent beside scores" checkbox.
+3. **neo-plan** — everything that used to live in the extension's side panel (now
+   removed): server, token, the Schoology last-read line with a Check now button,
+   and the Courses mapping, plus a "Save archives to" row (below). This group is an `<iframe>` of the
+   extension's own `panel/settings.html?embed=1`, not inline controls — a Schoology
+   page must never see the neo-plan token, so it stays behind the frame boundary (the
+   same precedent as `overlays/launcher.js`'s card, which frames neo-plan itself).
+   The frame is created lazily on first open and then kept, so reopening the popover
+   is instant. It posts `{ type: 'np-settings-height', height }` to the parent
+   window whenever its content's size changes; `switch.js` accepts that only from
+   `e.source === frame.contentWindow` and the extension's own origin, and resizes
+   the frame (clamped to 40–600px). The frame is *not* re-inverted under a dark
+   theme (`.npframe { filter: none }` outranks the host's plain `iframe`
+   re-invert rule): it's our own page, so it goes dark along with the popover.
+   For that it paints no surface of its own — embedded, `settings.css` makes the
+   body transparent and drops its padding and its "Settings" heading, so the
+   popover's surface and labels show through and line up. Below 420px wide
+   (always, in the popover) each course's column picker takes its own line.
+   `test/settings-page.html` (and `?embed=1`) draws the page with a fake `chrome`.
+
+Theme and Grades are one setting object in `chrome.storage.local`
 (`ui.js`: `SETTINGS_KEY`, `getSettings`/`onSettings`/`setSetting`), applied on every
-open Schoology tab like the Overlay switch itself.
+open Schoology tab like the Overlay switch itself. The popover scrolls
+(`max-height: calc(100vh - 72px)`) rather than overflow the viewport once the
+neo-plan frame is in it.
 
 `overlays/theme.js` owns the theme list (`THEMES`, an ordered object of key →
 `{ name, dark, header, headerText?, page, accent, accentSoft }`). Every colour is
@@ -78,7 +141,12 @@ with a filter. Dropdown panels sit deeper and are left alone.
 
 **Dark themes ("smart invert").** Schoology's markup is large and changes often, so
 rather than reskin it, dark themes invert the whole page: `html { filter: invert(1)
-hue-rotate(180deg) }` (a filter on the root doesn't break `position: fixed`).
+hue-rotate(180deg) }`. A filter on the root element is exempt from the rule
+that a filtered ancestor becomes the containing block for `position: fixed`
+(Filter Effects spec), so the switch bar, the launcher and the Archiver card stay
+put while the page scrolls — checked in Chromium on `test/theme-page.html`, 3000px
+tall, at several scroll positions. Keep the filter on `html`: moving it to `body`
+or a wrapper would lose that exemption.
 html's background paints the canvas: inside the window it's filtered like the
 page, but the rubber-band area past the page's edges isn't, so no single colour is
 right for both. html and body get the theme's `page` colour pre-inverted, and dark
@@ -98,7 +166,10 @@ the same function.
 Our own hosts get inverted right along with the page (they're real DOM, just in a
 shadow root), which is exactly what makes their light tokens (ink, surface…) come
 out dark; `accent`/`accentSoft` are given as seen, so they're pre-inverted for
-dark themes like the page's colours (`paint(hex, dark)`). The settings menu's
+dark themes like the page's colours (`paint(hex, dark)`). Inverted as-is, white
+surfaces come out pure black, harsh against the theme's page, so dark themes also
+set `--surface` (the page mixed 7% towards white), `--sunk` (the page) and
+`--line` (16% towards white), pre-inverted: our cards sit a step above the page. The settings menu's
 swatches, and the grades page's what-if bar (an inline style on Schoology's cell),
 are painted the same way.
 Every `createHost` root gets a second `<style data-np-theme>` (kept in sync by

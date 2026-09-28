@@ -1,0 +1,122 @@
+<!doctype html>
+<!-- A stand-in "Schoology page" to look at the Archiver card
+     (overlays/archive.js) outside the extension: a fake header, and a fake
+     `chrome` (there is none outside the extension) so the card can draw a
+     folder line and, with ?state=running/done/error, a fake job pushed over
+     its "port". ?page=home switches to a non-course page (with a fake
+     history — see fakeHistory below — unless ?history=0). Serve
+     schoology_archiver_extension/ (python3 -m http.server) and open e.g.
+     /test/archive-card.html?page=home or /test/archive-card.html?state=running.
+     ?debug=1 forces the card's shadow root open (attachShadow patched before
+     it's created) purely so a devtools/automation script can inspect it from
+     the page; the real extension always uses a closed root.
+
+     Not a `node --test` — the card is DOM/shadow-root UI, same precedent as
+     theme-page.html / course-page.html. -->
+<html><head><meta charset="utf-8"><title>Archive card stand-in</title>
+<style>
+  body { font: 13px Arial, sans-serif; color: #333; background: #fff; margin: 0; }
+  #header > header {
+    display: flex; align-items: center; height: 52px; padding: 0 16px;
+    background: #fff; border-top: 3px solid #ddd;
+  }
+  #header > header .logo { font-weight: bold; font-size: 16px; color: #333; }
+  main { max-width: 760px; margin: 24px auto; padding: 0 16px; }
+</style></head>
+<body>
+<div id="header"><header><span class="logo">Schoology</span></header></div>
+<main>
+  <h2>AP Biology</h2>
+  <p>The Archive button (bottom left) opens the card. This page fakes <code>chrome.runtime</code>
+  so it can run outside the extension. Query params: <code>page=home</code> (else a course page),
+  <code>state=running|done|error</code> (else idle), <code>history=0</code> (suppress the fake
+  Archived courses history, on by default).</p>
+</main>
+<script type="module">
+  globalThis.__npNoAutoStart = true;
+  const params = new URLSearchParams(location.search);
+  if (params.get('debug') === '1') {
+    const orig = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function (opts) { return orig.call(this, { ...opts, mode: 'open' }); };
+  }
+  const state = params.get('state'); // running | done | error | null (idle)
+  const loc = { pathname: params.get('page') === 'home' ? '/home' : '/course/123456/materials', host: 'district.schoology.com' };
+  const withHistory = params.get('history') !== '0';
+  // The card falls back to the page's <title> for the current course's name
+  // (split on ' | ', same as a real Schoology page's title); give it a
+  // realistic one instead of this file's own title.
+  if (loc.pathname !== '/home') document.title = 'AP Biology | Schoology';
+
+  const runningLog = [
+    { text: 'Course: AP Biology', level: '' },
+    { text: '📁 Unit 3 (8 items)', level: '' },
+    { text: '  ✓ Unit 3/Lecture Notes.pdf', level: '' },
+    { text: '  ! "Reading guide" in Unit 3: HTTP 404', level: 'error' },
+    { text: 'Skipped 4 unchanged items without opening them (0 re-checked).', level: '' },
+  ];
+
+  // A finished job's log grows one more line past the running snapshot, so
+  // the aria-live "only announce what's appended" behaviour has something to
+  // append when a running card later flips to done/error.
+  const fakeState = state === 'running' ? {
+    jobId: 'x', running: true, host: loc.host, courseId: '123456', courseName: 'AP Biology',
+    status: 'Archiving…', counts: 12, startedAt: Date.now(), finishedAt: null, error: null, summary: null, stopped: false,
+    log: runningLog,
+  } : state === 'done' ? {
+    jobId: 'x', running: false, host: loc.host, courseId: '123456', courseName: 'AP Biology',
+    status: 'Done', counts: 42, startedAt: Date.now() - 60000, finishedAt: Date.now(), error: null,
+    summary: '42 items, 3 new', stopped: false,
+    log: [...runningLog, { text: '✓ Done: 42 items, 3 new, 1 skipped', level: 'done' }],
+  } : state === 'error' ? {
+    jobId: 'x', running: false, host: loc.host, courseId: '123456', courseName: 'AP Biology',
+    status: 'Error', counts: 5, startedAt: Date.now() - 15000, finishedAt: Date.now(),
+    error: 'Not logged in. Open Schoology in a tab and sign in, then try again.', summary: null, stopped: false,
+    log: [...runningLog, { text: 'Not logged in. Open Schoology in a tab and sign in, then try again.', level: 'error' }],
+  } : null;
+
+  // The card reads history straight out of chrome.storage.local: every
+  // `course:<id>` key (overlays/archive.js's refreshHistory). Faked here the
+  // same shape background.js writes, so a home page with no running job can
+  // show it as its main content.
+  const fakeHistory = withHistory ? {
+    'course:123456': {
+      courseName: 'AP Biology',
+      files: { a: 1, b: 1, c: 1, d: 1, e: 1, f: 1, g: 1, h: 1, i: 1, j: 1, k: 1, l: 1, m: 1, n: 1, o: 1, p: 1, q: 1, r: 1, s: 1, t: 1, u: 1, v: 1, w: 1, x: 1, y: 1, z: 1, aa: 1, ab: 1, ac: 1, ad: 1, ae: 1, af: 1, ag: 1, ah: 1, ai: 1, aj: 1, ak: 1, al: 1, am: 1, an: 1 },
+      runs: [{ at: new Date(Date.now() - 86400000).toISOString(), stopped: false }],
+    },
+    'course:987654': {
+      courseName: 'US History',
+      files: { a: 1, b: 1, c: 1, d: 1, e: 1, f: 1, g: 1, h: 1, i: 1, j: 1 },
+      runs: [{ at: new Date(Date.now() - 3 * 86400000).toISOString(), stopped: true }],
+    },
+  } : {};
+
+  globalThis.chrome = {
+    runtime: {
+      id: 'test-extension',
+      sendMessage: async (m) => {
+        if (m.type === 'archiveFolderInfo') return { ok: true, custom: true, name: 'Schoology Archive', granted: true };
+        if (m.type === 'archiveStart') return { ok: true, jobId: 'x' };
+        if (m.type === 'archiveStop') return { ok: true };
+        if (m.type === 'openSettings') return { ok: true };
+        return { ok: false };
+      },
+      connect: () => ({
+        onMessage: { addListener: (fn) => { if (fakeState) setTimeout(() => fn({ type: 'archiveState', state: fakeState }), 0); } },
+        onDisconnect: { addListener: () => {} },
+        postMessage: () => {},
+      }),
+    },
+    storage: {
+      local: {
+        get: async (key) => (key == null ? fakeHistory : {}),
+        set: async () => {},
+      },
+    },
+  };
+
+  const { start } = await import('../overlays/archive.js');
+  const card = start({ doc: document, loc });
+  await card.open();
+</script>
+</body></html>

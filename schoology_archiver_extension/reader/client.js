@@ -1,5 +1,6 @@
 import { sleep, throwIfStopped } from '../util.js';
 import { acquireSlot, reportRateLimited, isRateLimited, RateLimitError } from './ratelimit.js';
+import * as bridge from '../outputs/archive/chrome-bridge.js';
 
 export class LoginError extends Error {
   constructor() { super('Not logged in to Schoology in this browser'); }
@@ -46,11 +47,11 @@ export class SchoologyClient {
   async findSchoologyTab() {
     if (this.tabId) {
       try {
-        const t = await chrome.tabs.get(this.tabId);
+        const t = await bridge.tabsGet(this.tabId);
         if (t.url && new URL(t.url).host === this.host) return t.id;
       } catch { /* tab closed */ }
     }
-    const tabs = await chrome.tabs.query({ url: `${this.origin}/*` });
+    const tabs = await bridge.tabsQuery({ url: `${this.origin}/*` });
     return tabs[0]?.id ?? null;
   }
 
@@ -65,17 +66,9 @@ export class SchoologyClient {
       if (r.type === 'opaqueredirect') return { status: 0, url, text: '', redirected: true };
       return { status: r.status, url: r.url, text: await r.text() };
     }
-    const [res] = await chrome.scripting.executeScript({
-      target: { tabId: this.tabId },
-      func: async (u, redir, hdrs) => {
-        const r = await fetch(u, { credentials: 'include', redirect: redir, headers: hdrs });
-        if (r.type === 'opaqueredirect') return { status: 0, url: u, text: '', redirected: true };
-        return { status: r.status, url: r.url, text: await r.text() };
-      },
-      args: [url, redirect, headers],
-    });
-    if (!res || !res.result) throw new Error('Could not read page through the Schoology tab (was it closed?)');
-    return res.result;
+    const res = await bridge.tabFetch(this.tabId, url, redirect, headers);
+    if (!res) throw new Error('Could not read page through the Schoology tab (was it closed?)');
+    return res;
   }
 
   // Kept as `throttle` so callers don't change; it's the shared limiter now,

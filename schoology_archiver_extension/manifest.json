@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Schoology Course Archiver",
-  "version": "1.6.0",
+  "version": "1.8.0",
+  "minimum_chrome_version": "116",
   "description": "Archive a Schoology course (files, Google Docs, assignments, your submissions, grades) into your Downloads folder, with an INDEX.md for AI study tools.",
   "action": {
-    "default_title": "Open Schoology Archiver",
+    "default_title": "Schoology Archiver settings",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -25,7 +26,6 @@
     "downloads.ui",
     "storage",
     "scripting",
-    "sidePanel",
     "alarms",
     "offscreen"
   ],
@@ -68,6 +68,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "overlays/archive.js",
         "overlays/asgstate.js",
         "overlays/assignment.js",
         "overlays/course.js",
@@ -87,13 +88,20 @@
         "overlays/todorows.js",
         "overlays/ui.js",
         "overlays/fonts/*.woff2",
+        "outputs/archive/state.js",
         "reader/md.js",
         "reader/ratelimit.js",
         "reader/parse/grades.js",
         "reader/parse/materials.js",
         "reader/parse/sync.js",
         "util.js",
-        "panel/today-format.js"
+        "panel/today-format.js",
+        "panel/settings.html",
+        "panel/settings.js",
+        "panel/settings.css",
+        "panel/sync-settings.js",
+        "panel/np.js",
+        "panel/fonts/*.woff2"
       ],
       "matches": [
         "https://*.schoology.com/*"
@@ -109,7 +117,8 @@
       "description": "Stop the Schoology archiver immediately"
     }
   },
-  "side_panel": {
-    "default_path": "panel/archive.html"
+  "options_ui": {
+    "page": "panel/settings.html",
+    "open_in_tab": true
   }
 }

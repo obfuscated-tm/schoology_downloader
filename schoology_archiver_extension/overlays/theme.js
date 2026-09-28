@@ -59,6 +59,11 @@ function rgbToHex([r, g, b]) {
   return `#${[r, g, b].map((c) => Math.max(0, Math.min(255, Math.round(c))).toString(16).padStart(2, '0')).join('')}`;
 }
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
+/** `a` moved `amount` (0–1) of the way towards `b`, per channel. */
+function mix(a, b, amount) {
+  const [x, y] = [hexToRgb(a), hexToRgb(b)];
+  return rgbToHex(x.map((c, i) => c + (y[i] - c) * amount));
+}
 
 // The CSS Filter Effects hue-rotate() matrix (deg), applied to invert(1)'s
 // output — i.e. exactly what `filter: invert(1) hue-rotate(180deg)` does.
@@ -169,7 +174,13 @@ function hostThemeCss(key) {
   // (ink, surface…) are what come out dark. The accents are given as seen,
   // so they're pre-inverted like the page's colours.
   let css = `:host { --accent: ${paint(t.accent, t.dark)}; --accent-soft: ${paint(t.accentSoft, t.dark)}; }`;
-  if (t.dark) css += `\n${REINVERT_CSS}`;
+  if (t.dark) {
+    // Inverted as-is, white surfaces come out pure black: harsh against the
+    // theme's page. Lift them off the page instead (a card a step lighter
+    // than the page, sunk areas at the page itself), as seen, pre-inverted.
+    css += `\n:host { --surface: ${preInvert(mix(t.page, '#FFFFFF', 0.07))}; --sunk: ${preInvert(t.page)}; --line: ${preInvert(mix(t.page, '#FFFFFF', 0.16))}; }`;
+    css += `\n${REINVERT_CSS}`;
+  }
   return css;
 }
 setThemeProvider(hostThemeCss);

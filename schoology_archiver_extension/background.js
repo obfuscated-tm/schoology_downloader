@@ -2,6 +2,10 @@ import { handleNeoplan, getConfig, isWorkValue } from './outputs/neoplan/api.js'
 import { requestSync, stopSync, syncRunning, reportSubmitted, sectionForRealm, SYNC_LOCK_ID, KEY_HOST } from './sync/runner.js';
 import { KEY_SNAPSHOT } from './sync/sync.js';
 import { limiter, restorePausedUntil, persistPausedUntil } from './sync/limiter.js';
+import { ensureOffscreen, OFFSCREEN_URL } from './offscreen/ensure.js';
+import { PROXY_OPS } from './outputs/archive/chrome-bridge.js';
+import { isValidCourseId, sanitizeOptions, reduceProgress } from './outputs/archive/state.js';
+import { getSavedFolder } from './outputs/archive/folder.js';
 
 const SYNC_ALARM = 'neoplan-sync';
 const SYNC_SOON_ALARM = 'neoplan-sync-soon';
@@ -12,38 +16,67 @@ const TAB_SYNC_GAP_MS = 10 * 60_000; // a Schoology page load starts a sync, at 
 // Schoology's pages work is turned in only with Schoology's own Submit button.
 // 'work' (marking studied/done, or back) is the one write besides add/remove.
 const CONTENT_OPS = new Set(['items', 'addItem', 'remove', 'restore', 'work']);
-// A Materials page's "Sync now": { host, courseId, at } for the archive panel.
-const ARCHIVE_REQUEST = 'archiveRequest';
 
-// The archiver lives in Chrome's side panel so Schoology stays visible next to it.
-// (A regular popup would close, and stop the archive, as soon as you click the page.)
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+// ── The archive job: one at a time, in the offscreen document ───────────────
+// There is no side panel and no tab any more — the Archive button opens a
+// card (overlays/archive.js) that is only a view. Closing it, or navigating
+// away, never stops the job: it runs in the offscreen document, and its
+// progress is kept here (chrome.storage.session) so any card, on any
+// Schoology page, shows it live. `archiveActive` mirrors the stored state's
+// `running` so requestSync can check it without an extra read; it's restored
+// below in case this service worker was restarted mid-run (the offscreen
+// document survives that).
+const ARCHIVE_LOCK_ID = 'archive';
+const KEY_ARCHIVE_STATE = 'archiveState';
+let archiveActive = false;
+chrome.storage.session.get(KEY_ARCHIVE_STATE).then(({ [KEY_ARCHIVE_STATE]: state }) => {
+  if (state?.running) archiveActive = true;
+}).catch(() => {});
 
-// Each open archiver panel keeps a port open. If the panel that is running an
-// archive is closed, everything it started is cancelled (kill switch).
-const panels = new Map(); // panelId -> port
+const isArchiveRunning = (running) => running.id === ARCHIVE_LOCK_ID && archiveActive;
+
+// Cards on any Schoology page hold a port open to be pushed live updates
+// (chrome.storage.session isn't readable from a content script, and we don't
+// want to grant that broadly just for this).
+const archivePorts = new Set();
+function broadcastArchiveState(state) {
+  for (const p of archivePorts) { try { p.postMessage({ type: 'archiveState', state }); } catch { /* gone */ } }
+}
+
+let offscreenUrl = null;
+function isOffscreenSender(sender) {
+  offscreenUrl ||= chrome.runtime.getURL(OFFSCREEN_URL);
+  return sender.id === chrome.runtime.id && sender.url === offscreenUrl;
+}
+
+// The settings page is a normal tab, one apiece: find an already-open one and
+// focus it instead of piling up duplicates.
+async function focusOrOpen(path, { openerTabId } = {}) {
+  const url = chrome.runtime.getURL(path);
+  // getContexts sees our own pages without the "tabs" permission. Top frames
+  // only: settings.html framed in the gear popover is not a settings tab.
+  const ctx = (await chrome.runtime.getContexts({ contextTypes: ['TAB'] }))
+    .find((c) => c.frameId === 0 && c.tabId >= 0 && c.documentUrl?.startsWith(url));
+  if (ctx) {
+    const tab = await chrome.tabs.update(ctx.tabId, { active: true });
+    if (tab?.windowId != null) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+    return { tab, opened: false };
+  }
+  const tab = await chrome.tabs.create({ url, openerTabId });
+  return { tab, opened: true };
+}
+
+// The toolbar icon opens the settings page as a tab (options_ui also points here).
+chrome.action.onClicked.addListener(() => { focusOrOpen('panel/settings.html').catch(() => {}); });
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'archiver-panel') return;
-  let panelId = null;
-  port.onMessage.addListener((msg) => {
-    if (msg?.type === 'hello') {
-      panelId = msg.id;
-      panels.set(panelId, port);
-    }
-    // 'ping' messages just keep this service worker awake during long runs.
+  if (port.name !== 'archive-card') return;
+  archivePorts.add(port);
+  chrome.storage.session.get(KEY_ARCHIVE_STATE).then(({ [KEY_ARCHIVE_STATE]: state }) => {
+    try { port.postMessage({ type: 'archiveState', state: state || null }); } catch { /* already gone */ }
   });
-  port.onDisconnect.addListener(async () => {
-    if (panelId) panels.delete(panelId);
-    const { running } = await chrome.storage.session.get('running');
-    if (running?.id && running.id === panelId) {
-      await killEverything();
-      await chrome.storage.session.remove('running');
-    }
-  });
+  port.onDisconnect.addListener(() => archivePorts.delete(port));
 });
-
-const isArchiveRunning = (running) => panels.has(running.id);
 
 // Who sent a message: one of this extension's own pages (panel), or one of its
 // content scripts on a Schoology page. Anything else is ignored.
@@ -69,6 +102,41 @@ async function syncState() {
   return { running: !!syncRunning(), snapshot: snap };
 }
 
+// Start an archive job for `courseId` on `host` (from the content script's
+// own tab), unless a sync or another archive already holds the run lock.
+async function startArchive({ host, courseId, options, tabId }, reply) {
+  const s = syncRunning();
+  if (s) await s.catch(() => {});
+  const { running } = await chrome.storage.session.get('running');
+  if (running?.id && running.id !== ARCHIVE_LOCK_ID && running.id !== SYNC_LOCK_ID) { reply({ ok: false, error: 'busy' }); return; }
+  if (archiveActive) { reply({ ok: false, error: 'busy' }); return; }
+  archiveActive = true;
+  await chrome.storage.session.set({ running: { id: ARCHIVE_LOCK_ID, courseId } });
+  try {
+    await ensureOffscreen();
+  } catch {
+    archiveActive = false;
+    await chrome.storage.session.remove('running');
+    reply({ ok: false, error: 'offscreen' });
+    return;
+  }
+  const jobId = crypto.randomUUID();
+  const state = {
+    jobId, running: true, host, courseId, courseName: null, status: 'Starting…',
+    log: [], counts: 0, startedAt: Date.now(), finishedAt: null, error: null, summary: null, stopped: false,
+  };
+  await chrome.storage.session.set({ [KEY_ARCHIVE_STATE]: state });
+  broadcastArchiveState(state);
+  reply({ ok: true, jobId });
+  chrome.runtime.sendMessage({ type: 'archiveRun', target: 'offscreen', jobId, host, courseId, tabId, options }).catch(() => {});
+}
+
+async function finishArchiveLock() {
+  archiveActive = false;
+  const { running } = await chrome.storage.session.get('running');
+  if (running?.id === ARCHIVE_LOCK_ID) await chrome.storage.session.remove('running');
+}
+
 // Only one run at a time, across all windows: an Archive, or a sync.
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   const from = origin(sender);
@@ -91,15 +159,68 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     getConfig().then(({ server }) => reply({ ok: true, server }), () => reply({ ok: false }));
     return true;
   }
-  if (msg?.type === 'archiveCourse') {
-    // "Sync now" on a Materials page: the archiver runs in the side panel, so
-    // open it (now, while Chrome still counts the click) and leave it the course.
-    if (from !== 'content' || !sender.tab || !/^\d{1,20}$/.test(String(msg.courseId || ''))) return false;
+  if (msg?.type === 'openSettings') {
+    // The card's "Change in Settings" link, or the gear's neo-plan group.
+    if (from !== 'content' && from !== 'page') return false;
+    focusOrOpen('panel/settings.html', { openerTabId: sender.tab?.id }).then(() => reply({ ok: true }), () => reply({ ok: false }));
+    return true;
+  }
+  if (msg?.type === 'archiveFolderInfo') {
+    // Where the card says archives are saved: Downloads, or a chosen folder
+    // (and whether Chrome still has permission for it).
+    if (from !== 'content' && from !== 'page') return false;
+    (async () => {
+      try {
+        const folder = await getSavedFolder();
+        if (!folder) { reply({ ok: true, custom: false, name: null, granted: false }); return; }
+        const granted = (await folder.queryPermission({ mode: 'readwrite' }).catch(() => 'denied')) === 'granted';
+        reply({ ok: true, custom: true, name: folder.name, granted });
+      } catch { reply({ ok: true, custom: false, name: null, granted: false }); }
+    })();
+    return true;
+  }
+  if (msg?.type === 'archiveStart') {
+    if (from !== 'content' || !sender.tab || !isValidCourseId(msg.courseId)) { reply({ ok: false, error: 'course' }); return false; }
     const host = new URL(sender.url).host.toLowerCase();
-    const opened = chrome.sidePanel.open({ tabId: sender.tab.id }).then(() => true, () => false);
-    chrome.storage.session.set({ [ARCHIVE_REQUEST]: { host, courseId: String(msg.courseId), at: Date.now() } })
-      .then(() => opened)
-      .then((ok) => reply({ ok: true, opened: ok }), () => reply({ ok: false }));
+    startArchive({ host, courseId: String(msg.courseId), options: sanitizeOptions(msg.options), tabId: sender.tab.id }, reply);
+    return true;
+  }
+  if (msg?.type === 'archiveStop') {
+    if (from !== 'content' && from !== 'page') return false;
+    chrome.runtime.sendMessage({ type: 'archiveStop', target: 'offscreen' }).catch(() => {});
+    reply({ ok: true });
+    return true;
+  }
+  if (msg?.type === 'archiveState') {
+    if (from !== 'content' && from !== 'page') return false;
+    chrome.storage.session.get(KEY_ARCHIVE_STATE).then(({ [KEY_ARCHIVE_STATE]: state }) => reply({ ok: true, state: state || null }));
+    return true;
+  }
+  if (msg?.type === 'archiveProgress') {
+    // Pushed by the offscreen job, never a content script: never trust this
+    // from anywhere but that one page.
+    if (!isOffscreenSender(sender)) return false;
+    (async () => {
+      const { [KEY_ARCHIVE_STATE]: state } = await chrome.storage.session.get(KEY_ARCHIVE_STATE);
+      const next = reduceProgress(state, msg);
+      if (!next || next === state) return;
+      await chrome.storage.session.set({ [KEY_ARCHIVE_STATE]: next });
+      broadcastArchiveState(next);
+      if (msg.done) await finishArchiveLock();
+    })();
+    return false;
+  }
+  if (msg?.type === 'archivePing') {
+    return false; // just keeps this service worker alive by arriving
+  }
+  if (msg?.type === 'archiveProxy') {
+    // Everything the offscreen Archiver needs besides chrome.runtime
+    // (storage, downloads, tabs, scripting) — an exact allowlist, only from
+    // the offscreen document itself. See outputs/archive/chrome-bridge.js.
+    if (!isOffscreenSender(sender)) { reply({ ok: false, error: 'forbidden' }); return false; }
+    const fn = PROXY_OPS[msg.op];
+    if (!fn) { reply({ ok: false, error: 'op' }); return false; }
+    fn(msg.args || {}).then((result) => reply({ ok: true, result }), (e) => reply({ ok: false, error: String(e?.message || e) }));
     return true;
   }
   if (msg?.type === 'sync') {
@@ -110,26 +231,6 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       syncState().then(reply);
     }
     return true;
-  }
-  if (msg?.type === 'claim') {
-    (async () => {
-      // A sync holds the lock for a few seconds: the archive waits for it.
-      const s = syncRunning();
-      if (s) await s.catch(() => {});
-      const { running } = await chrome.storage.session.get('running');
-      if (running?.id && running.id !== msg.id && running.id !== SYNC_LOCK_ID && panels.has(running.id)) {
-        reply({ ok: false });
-      } else {
-        await chrome.storage.session.set({ running: { id: msg.id, courseId: msg.courseId } });
-        reply({ ok: true });
-      }
-    })();
-    return true; // async reply
-  }
-  if (msg?.type === 'release') {
-    chrome.storage.session.get('running').then(({ running }) => {
-      if (running?.id === msg.id) chrome.storage.session.remove('running');
-    });
   }
   // The shared rate limiter: a panel or content script asks for a slot before
   // it fetches Schoology, and reports when it hit the limit. Never the token
@@ -189,6 +290,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
 
 async function killEverything() {
   stopSync();
+  if (archiveActive) chrome.runtime.sendMessage({ type: 'archiveStop', target: 'offscreen' }).catch(() => {});
   const running = await chrome.downloads.search({ state: 'in_progress' });
   await Promise.all(running.filter((d) => d.byExtensionId === chrome.runtime.id)
     .map((d) => chrome.downloads.cancel(d.id).catch(() => {})));

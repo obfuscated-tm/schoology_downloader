@@ -27,6 +27,7 @@ async function idb(mode, fn) {
 
 export const getSavedFolder = () => idb('readonly', (s) => s.get(KEY));
 export const saveFolder = (handle) => idb('readwrite', (s) => s.put(handle, KEY));
+export const clearFolder = () => idb('readwrite', (s) => s.delete(KEY));
 
 // Must be called from a click (Chrome requires a user gesture for the picker).
 export async function pickFolder() {

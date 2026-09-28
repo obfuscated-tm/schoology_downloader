@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- The settings page (panel/settings.html) outside the extension, with a fake
+     `chrome` so it draws a signed-in state: a token, two servers, the
+     Schoology line and two Courses. Serve schoology_archiver_extension/
+     (python3 -m http.server) and open /test/settings-page.html (the settings
+     tab) or /test/settings-page.html?embed=1 (as framed in the gear popover;
+     it's drawn 320px wide, like the popover). ?token=0 shows the no-token state. -->
+<html lang="en"><head><meta charset="utf-8"><title>Settings stand-in</title>
+<base href="../panel/">
+</head>
+<body>
+<script type="module">
+  const q = new URLSearchParams(location.search);
+  const hasToken = q.get('token') !== '0';
+  globalThis.chrome = {
+    runtime: {
+      id: 'test-extension',
+      getURL: (p) => `/${p}`,
+      sendMessage: async (m) => {
+        if (m.type === 'neoplan' && m.op === 'settings') {
+          return { ok: true, status: 200, data: { servers: ['https://neo-plan.vercel.app', 'http://localhost:3000'], server: 'https://neo-plan.vercel.app', hasToken, masked: hasToken ? 'np_••••3f9a' : '' } };
+        }
+        if (m.type === 'neoplan' && m.op === 'courses') {
+          return { ok: true, status: 200, data: {
+            courses: [
+              { section_id: 1, title: 'AP Comp Sci A - 2350', section_title: 'McLeodT p2', class_id: 'a', auto: true },
+              { section_id: 2, title: 'AP Physics 1 - 3750', section_title: 'AgarwalA p5', class_id: null },
+            ],
+            classes: [{ id: 'a', name: 'Computer Science' }, { id: 'b', name: 'Physics' }],
+          } };
+        }
+        if (m.type === 'sync') return { running: false, snapshot: { at: new Date(Date.now() - 6e5).toISOString() } };
+        if (m.type === 'archiveFolderInfo') return { ok: true, custom: false };
+        return { ok: false };
+      },
+    },
+    storage: { onChanged: { addListener() {} }, local: { get: async () => ({}), set: async () => {} } },
+  };
+  // A fresh copy of the page's CSS every load (a static server's caching
+  // otherwise shows yesterday's styles).
+  const css = document.createElement('link');
+  css.rel = 'stylesheet';
+  css.href = `settings.css?v=${Date.now()}`;
+  document.head.append(css);
+  // Opened on its own: drawn popover-sized on grey. Framed (the gear): as is.
+  if (q.has('embed') && window.top === window) {
+    document.documentElement.style.cssText = 'background:#888';
+    document.body.style.cssText = 'width:320px;margin:16px';
+  }
+  const markup = await (await fetch('settings.html')).text();
+  const body = new DOMParser().parseFromString(markup, 'text/html').body;
+  body.querySelectorAll('script').forEach((s) => s.remove());
+  document.body.append(...body.childNodes);
+  await import(`../panel/settings.js?v=${Date.now()}`);
+</script>
+</body></html>

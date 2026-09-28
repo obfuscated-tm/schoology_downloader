@@ -1,5 +1,6 @@
 import { splitExt, today, StoppedError, throwIfStopped } from '../../util.js';
 import { acquireSlot, isRateLimited, reportRateLimited, RateLimitError } from '../../reader/ratelimit.js';
+import * as bridge from './chrome-bridge.js';
 
 const isSchoologyHost = (url) => { try { return /\.schoology\.com$/i.test(new URL(url).host); } catch { return false; } };
 
@@ -252,7 +253,7 @@ export class DownloadsWriter {
   async exists(relPath, rec) {
     if (rec?.downloadId == null) return true;
     try {
-      const [item] = await chrome.downloads.search({ id: rec.downloadId });
+      const [item] = await bridge.downloadsSearch({ id: rec.downloadId });
       if (!item) return true; // removed from Chrome's download history; trust the manifest
       return item.exists !== false && item.state === 'complete';
     } catch {
@@ -267,7 +268,7 @@ export class DownloadsWriter {
     // A download that sits with no filename is almost always Chrome's "Save As" dialog.
     const promptHint = setTimeout(async () => {
       if (this.warnedAboutPrompt) return;
-      const [it] = await chrome.downloads.search({ state: 'in_progress', limit: 1, orderBy: ['-startTime'] });
+      const [it] = await bridge.downloadsSearch({ state: 'in_progress', limit: 1, orderBy: ['-startTime'] });
       if (it && !it.filename) {
         this.warnedAboutPrompt = true;
         this.log('Chrome is asking where to save each file. Stop, then choose an archive folder at the top of this panel (or turn off “Ask where to save each file” at chrome://settings/downloads).', 'error');
@@ -282,7 +283,7 @@ export class DownloadsWriter {
         saveAs: false,
       }, this.signal);
       if (!allowHtml && /text\/html/i.test(item.mime || '')) {
-        try { await chrome.downloads.removeFile(item.id); } catch { /* ignore */ }
+        try { await bridge.downloadsRemoveFile(item.id); } catch { /* ignore */ }
         throw notAFileError();
       }
       return { downloadId: item.id };
@@ -293,40 +294,15 @@ export class DownloadsWriter {
   }
 }
 
-function downloadAndWait(options, signal, timeoutMs = 10 * 60 * 1000) {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(new StoppedError());
-    let id = null;
-    let done = false;
-    const finish = (fn, v) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      chrome.downloads.onChanged.removeListener(onChanged);
-      signal?.removeEventListener('abort', onAbort);
-      fn(v);
-    };
-    // Kill switch: cancel this download (also closes a pending Save dialog) and bail out.
-    const onAbort = () => {
-      if (id != null) chrome.downloads.cancel(id).catch(() => {});
-      finish(reject, new StoppedError());
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-    const check = async () => {
-      const [it] = await chrome.downloads.search({ id });
-      if (!it) return;
-      if (it.state === 'complete') finish(resolve, it);
-      else if (it.state === 'interrupted') finish(reject, new Error(`download failed (${it.error || 'interrupted'})`));
-    };
-    const onChanged = (delta) => {
-      if (delta.id === id && delta.state) check();
-    };
-    const timer = setTimeout(() => finish(reject, new Error('download timed out')), timeoutMs);
-    chrome.downloads.onChanged.addListener(onChanged);
-    chrome.downloads.download(options).then((newId) => {
-      id = newId;
-      if (done) { chrome.downloads.cancel(newId).catch(() => {}); return; }
-      check();
-    }, (e) => finish(reject, e));
-  });
+async function downloadAndWait(options, signal, timeoutMs = 10 * 60 * 1000) {
+  if (signal?.aborted) throw new StoppedError();
+  let id;
+  const onAbort = () => { if (id != null) bridge.downloadsCancel(id).catch(() => {}); };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  id = await bridge.downloadsStart(options);
+  try {
+    return await bridge.downloadsWaitDone(id, signal, timeoutMs);
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+  }
 }

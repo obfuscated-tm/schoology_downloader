@@ -6,13 +6,12 @@ import { SchoologyClient } from '../reader/client.js';
 import { handleNeoplan } from '../outputs/neoplan/api.js';
 import { runSync, KEY_SNAPSHOT, submittedPayload } from './sync.js';
 import { limiter, persistPausedUntil } from './limiter.js';
+import { ensureOffscreen } from '../offscreen/ensure.js';
 
 export const SYNC_LOCK_ID = 'sync';
 export const KEY_HOST = 'schoologyHost';
 export const DEFAULT_HOST = 'fuhsd.schoology.com';
 const KEY_REPORTED = 'submittedReported'; // { schoology_id: ms } — one enrich per submit is enough
-const OFFSCREEN_URL = 'offscreen/parse.html';
-
 let current = null; // the running sync's promise, in this service worker
 let controller = null;
 
@@ -21,19 +20,6 @@ export const syncRunning = () => current;
 /** Abort a running sync (kill switch). */
 export function stopSync() {
   controller?.abort();
-}
-
-// ── Offscreen parser ─────────────────────────────────────────────────────
-let creating = null;
-async function ensureOffscreen() {
-  const have = await chrome.runtime.getContexts?.({ contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [chrome.runtime.getURL(OFFSCREEN_URL)] });
-  if (have?.length) return;
-  creating ||= chrome.offscreen.createDocument({
-    url: OFFSCREEN_URL,
-    reasons: ['DOM_PARSER'],
-    justification: 'Read Schoology pages (HTML) for the neo-plan sync',
-  }).catch((e) => { if (!/single offscreen|already/i.test(String(e?.message))) throw e; }).finally(() => { creating = null; });
-  await creating;
 }
 
 export async function offscreenParse(kind, text, url) {
