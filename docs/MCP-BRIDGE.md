@@ -19,7 +19,9 @@ No answer-key hiding: the MCP returns everything it is asked for.
   free port in **47815–47819** (Claude Desktop can run more than one copy).
 - The extension's service worker connects **out** to every port in that
   range that answers, when the worker starts and on a 1-minute alarm
-  (`mcp-connect`). One socket per port; already-open ports are skipped.
+  (`mcp-connect`); also with each 20 s ping while a socket is open, and
+  2/5/10/20 s after a server drops (it's usually restarting). One socket per
+  port; already-open ports are skipped.
 - The server accepts a connection only if the handshake's `Origin` header
   starts with `chrome-extension://` (web pages cannot forge it). If the env
   var `SCHOOLOGY_EXT_ID` is set, the origin must be exactly
@@ -69,7 +71,7 @@ results; everything is plain JSON.
 | `materials` | `section_id`, `folder_id` (optional, default root) | `{ section_id, folder_id, rows: [{ kind, title, id, url, due? }] }` (folders, files, assignments, pages, links…) |
 
 | `material` | `url` (a Schoology path from a `materials` row: `/course/{c}/materials/gp/{id}`, `/course/{c}/materials/link/view/{id}`, `/page/{id}`, `/discussion/{id}`, `/assignment/{id}`) | `{ url, kind, title, body_md, target, files: [{ title, url, ext }], links: [{ title, url }] }`. `target` is where a link/view item really points (`findLinkViewTarget`); `files` are the real `/attachment/…/source/…` downloads (`findSourceAttachments`) and Google Docs/Slides/Sheets/Drive links found on the page; fields it can't find are `null`/`[]` |
-| `file` | `url` (a Schoology `/attachment/…/source/…` URL, or a `docs.google.com` / `drive.google.com` link) | `{ url, name, mime, size, base64 }`. Google Docs/Slides/Drawings are exported to PDF, Sheets to CSV, Drive files downloaded, using the archiver's `classifyLink` export URLs. Refuses anything over 15 MB (`error: 'too_large'`) and any other host (`bad_args`) |
+| `file` | `url` (a Schoology `/attachment/…/source/…` URL, or a `docs.google.com` / `drive.google.com` link) | `{ url, name, mime, size, base64 }`. Google Docs/Slides/Drawings are exported to PDF, Sheets to CSV, Drive files downloaded, a Drive folder returned as its `embeddedfolderview` HTML (see Course websites), using the archiver's `classifyLink` export URLs. Refuses anything over 15 MB (`error: 'too_large'`) and any other host (`bad_args`) |
 
 `args` ids are validated as `^\d{1,20}$`; anything else is `bad_args`.
 `material` paths must match one of the shapes above exactly (no other
@@ -101,6 +103,14 @@ cookies, 15 MB cap, never a loopback/private/link-local address (resolve the
 host first). HTML → readable text with its links listed, `.md`/`.txt` as is,
 PDF → text. `mcp/sites.json` maps courses to their sites so Claude knows
 they exist.
+
+Google links are the exception: Docs/Slides/Sheets, Drive files and Drive
+folders need the user's Google sign-in, so `fetch_page` sends them through
+the extension's `file` op instead. For a Drive folder
+(`drive.google.com/drive/folders/{id}`) the op fetches
+`drive.google.com/embeddedfolderview?id={id}&resourcekey=…` and returns that
+HTML as the file; the MCP reads the entries (`.flip-entry`: link + title) out
+of it.
 
 ## MCP disk state
 

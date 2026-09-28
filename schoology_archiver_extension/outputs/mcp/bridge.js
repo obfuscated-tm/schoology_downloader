@@ -41,6 +41,9 @@ function ensurePing() {
   pingTimer = setInterval(() => {
     if (!sockets.size) { clearInterval(pingTimer); pingTimer = null; return; }
     for (const ws of sockets.values()) send(ws, { type: 'ping' });
+    // While the worker is up anyway, pick up a newly started server (Claude
+    // Desktop relaunched) now rather than on the next 1-minute alarm.
+    connectBridge();
   }, PING_MS);
 }
 
@@ -112,8 +115,23 @@ async function connectPort(port) {
     send(ws, await snapshotMessage());
   });
   ws.addEventListener('message', (ev) => onMessage(ws, ev));
-  ws.addEventListener('close', drop);
-  ws.addEventListener('error', () => { try { ws.close(); } catch { /* already closing */ } drop(); });
+  // The server went away (not closeBridge, which unregisters first): retry soon.
+  ws.addEventListener('close', () => { if (sockets.get(port) === ws) { drop(); scheduleRetry(); } });
+  ws.addEventListener('error', () => { const ours = sockets.get(port) === ws; try { ws.close(); } catch { /* already closing */ } drop(); if (ours) scheduleRetry(); });
+}
+
+// A server that just went away is usually being restarted: look again after
+// a few seconds instead of waiting up to a minute for the alarm.
+const RETRY_MS = [2_000, 5_000, 10_000, 20_000];
+let retryTimer = null;
+function scheduleRetry(i = 0) {
+  if (retryTimer || i >= RETRY_MS.length) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    connectBridge();
+    // Ports connect asynchronously; check once more on the next step.
+    setTimeout(() => { if (!sockets.size) scheduleRetry(i + 1); }, 3_000);
+  }, RETRY_MS[i]);
 }
 
 /** Connect to every port in range not already connected. Worker start + the `mcp-connect` alarm. */
@@ -130,8 +148,10 @@ export async function pushSnapshot() {
 
 /** Kill switch: close every socket now. The next `mcp-connect` alarm reconnects. */
 export function closeBridge() {
-  for (const ws of sockets.values()) { try { ws.close(); } catch { /* already closed */ } }
+  const open = [...sockets.values()];
   sockets.clear();
+  for (const ws of open) { try { ws.close(); } catch { /* already closed */ } }
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
 }
 

@@ -27,6 +27,7 @@ import {
   searchTool,
   openMaterialTool,
   fetchPageTool,
+  findMaterialTool,
 } from "./src/tools.js";
 
 const INSTRUCTIONS = `Schoology data comes from two places, and every tool result says which one answered plus how old it is (\`source\`, \`as_of\`).
@@ -34,9 +35,11 @@ const INSTRUCTIONS = `Schoology data comes from two places, and every tool resul
 - **live**: fetched right now through the user's logged-in Chrome via the extension bridge. Current as of the call. Needs Chrome open with the extension connected (check \`status\`).
 - **archive**: a local, disk-based copy of Schoology. Only as fresh as its last-synced time (see \`status\`'s \`archived_courses\`), and doesn't cover every course.
 
-Prefer live tools (\`get_todo\`, \`get_grades\`, \`list_materials\` -> \`open_material\`, \`get_assignment\`, \`get_updates\`) for anything current: what's due, grades, assignments, or what's in a course right now. \`search\` and \`read_file\` only ever look at the archive — use them for older material, full-text search, or when live is unavailable, not as a first stop for current coursework. Always tell the user when an answer came from the archive or a cached snapshot, and how old it is.
+Prefer live tools (\`get_todo\`, \`get_grades\`, \`find_material\` / \`list_materials\` -> \`open_material\`, \`get_assignment\`, \`get_updates\`) for anything current: what's due, grades, assignments, or what's in a course right now. \`search\` and \`read_file\` only ever look at the archive — use them for older material, full-text search, or when live is unavailable, not as a first stop for current coursework. Always tell the user when an answer came from the archive or a cached snapshot, and how old it is.
 
-Some courses also have a public website outside Schoology (listed in \`status\`/\`list_courses\` as \`site\`, from \`sites.json\` — e.g. AP Comp Sci's lesson pages at apcs.tinocs.com). Use \`fetch_page\` to read those directly.`;
+To find something by name, use \`find_material\` (every course's whole Materials tree, one call) rather than opening folders one by one; to see a course's whole layout, \`list_materials\` with \`depth\`.
+
+Some courses also have a public website outside Schoology (listed in \`status\`/\`list_courses\` as \`site\`, from \`sites.json\` — e.g. AP Comp Sci's lesson pages at apcs.tinocs.com). Use \`fetch_page\` to read those directly. \`fetch_page\` also opens Google Docs/Slides/Sheets, Drive files and Drive folders (through the user's signed-in Chrome), so it's the tool for any link found in a material, assignment or page.`;
 
 async function main() {
   const cache = new DiskCache();
@@ -54,7 +57,7 @@ async function main() {
   const ctx = { bridge, cache, sites };
 
   const server = new McpServer(
-    { name: "schoology-mcp", version: "1.0.0" },
+    { name: "schoology-mcp", version: "1.1.0" },
     { instructions: INSTRUCTIONS },
   );
 
@@ -148,7 +151,7 @@ async function main() {
     {
       title: "List course materials",
       description:
-        "List a course's materials folder: live, else the archive's directory tree (one level by default, or `depth` levels), skipping .DS_Store and _archive.",
+        "List a course's materials folder: live, else the archive's directory tree, skipping .DS_Store and _archive. One level by default; `depth` N opens subfolders N levels down (live: a flat row list, each row with the `path` of the folder it's in; up to 200 folders).",
       inputSchema: {
         course: z.string().describe("section_id or case-insensitive name fragment"),
         folder_id: z.string().optional().describe("Schoology folder id (live only); default root"),
@@ -156,10 +159,28 @@ async function main() {
           .string()
           .optional()
           .describe("sub-path within the course's archive folder (archive fallback only)"),
-        depth: z.number().int().min(1).max(6).optional().describe("archive listing depth, default 1"),
+        depth: z.number().int().min(1).max(6).optional().describe("folder levels to open, default 1"),
       },
     },
     wrap((ctxArg, args) => listMaterialsTool(ctxArg, args)),
+  );
+
+  server.registerTool(
+    "find_material",
+    {
+      title: "Find a material by name, live",
+      description:
+        "Search item titles (and the folder path each sits in) across a course's whole Materials tree, or all courses' when `course` is omitted — live, every folder opened for you (cached 10 min). Every word of the query must appear. Returns rows with course, path, kind, title, id and url; open one with open_material (or get_assignment for assignments). Titles only; for full-text search of old material use `search` (archive).",
+      inputSchema: {
+        query: z.string().describe("words that appear in the title or folder path"),
+        course: z.string().optional().describe("section_id or name fragment; default all courses"),
+        kind: z
+          .enum(["folder", "document", "assignment", "quiz", "page", "discussion", "other"])
+          .optional()
+          .describe("only rows of this kind"),
+      },
+    },
+    wrap((ctxArg, args) => findMaterialTool(ctxArg, args)),
   );
 
   server.registerTool(
@@ -247,9 +268,9 @@ async function main() {
   server.registerTool(
     "fetch_page",
     {
-      title: "Fetch a public course website page",
+      title: "Fetch a web page, Google Doc or Drive folder",
       description:
-        "Fetch a public course website page outside Schoology (see status/list_courses for a course's `site`, e.g. AP Comp Sci's lesson pages) — a plain GET, no cookies, address-guarded, 1h cache. HTML becomes readable text plus links (frames included); a page that is only images (old textbook exercise/solution pages) comes back with its images; an image URL comes back as an image; .md/.txt as is; PDF as text.",
+        "Open a link from outside Schoology. Google Docs/Slides/Sheets and Drive files come back as text (PDF/CSV export) and Drive folders as a file list, fetched through the user's signed-in Chrome (needs the extension). Anything else is a public course website page (see status/list_courses for a course's `site`, e.g. AP Comp Sci's lesson pages) — a plain GET, no cookies, address-guarded, 1h cache. HTML becomes readable text plus links (frames included); a page that is only images (old textbook exercise/solution pages) comes back with its images; an image URL comes back as an image; .md/.txt as is; PDF as text.",
       inputSchema: {
         url: z.string().describe("a public http(s) url"),
         include_images: z.boolean().optional().describe("also return the page's images (default: only when the page is just images)"),

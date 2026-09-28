@@ -284,6 +284,19 @@ function googleExportUrl(info) {
   return info.label === 'Google Sheet' ? info.exportUrl.replace('format=xlsx', 'format=csv') : info.exportUrl;
 }
 
+// drive.google.com/drive/folders/<id>?resourcekey=… → its embeddedfolderview,
+// a plain HTML list of the folder's files and subfolders.
+function folderView(url) {
+  const u = new URL(url);
+  const id = (u.pathname.match(/\/folders\/([\w-]+)/) || [])[1];
+  if (!id) return null;
+  const view = new URL('https://drive.google.com/embeddedfolderview');
+  view.searchParams.set('id', id);
+  const rk = u.searchParams.get('resourcekey');
+  if (rk) view.searchParams.set('resourcekey', rk);
+  return view.href;
+}
+
 export async function opFile({ client, fetch: fetchFn } = {}, { url } = {}) {
   return runOp(async () => {
     const target = fileTarget(url, client);
@@ -311,6 +324,19 @@ export async function opFile({ client, fetch: fetchFn } = {}, { url } = {}) {
     }
 
     const info = classifyLink(target.url);
+    // A Drive folder: its embedded view (signed in as the user), as HTML —
+    // the MCP server reads the file list out of it (docs/MCP-BRIDGE.md).
+    if (info.kind === 'folder') {
+      const folder = folderView(target.url);
+      if (!folder) throw codeError('bad_args');
+      const res = await doFetch(folder, { credentials: 'include' });
+      if (!res.ok) {
+        const e = codeError('schoology');
+        e.message = `Google returned HTTP ${res.status} for the folder (no access?)`;
+        throw e;
+      }
+      return await bytesFromResponse(res, target.url);
+    }
     if (info.kind !== 'google' && info.kind !== 'drivefile') throw codeError('bad_args');
     const res = await doFetch(googleExportUrl(info), { credentials: 'include' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

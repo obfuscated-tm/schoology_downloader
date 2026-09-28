@@ -20,6 +20,7 @@ import { AmbiguousCourseError, CourseNotFoundError } from "./archive.js";
 import { siteForCourse } from "./sites.js";
 import { readCachedFile, writeCachedFile } from "./filecache.js";
 import { fetchPage } from "./fetchpage.js";
+import { walkMaterials, matchesQuery } from "./materialwalk.js";
 
 const TEXT_EXTS = new Set([".md", ".txt", ".html", ".htm", ".json"]);
 const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
@@ -377,6 +378,23 @@ export async function getUpdatesTool(ctx, { course, page = 0 }) {
 export async function listMaterialsTool(ctx, { course, folder_id, path: subPath, depth = 1 }) {
   const ref = await resolveCourseRef(ctx, course);
 
+  if (ref.section_id && depth > 1 && ctx.bridge?.isConnected()) {
+    try {
+      const walk = await walkMaterials(ctx.bridge, ref.section_id, { folder_id, depth });
+      return {
+        source: "live",
+        as_of: new Date().toISOString(),
+        course: ref.name,
+        section_id: ref.section_id,
+        folder_id: folder_id || null,
+        depth,
+        ...walk,
+      };
+    } catch {
+      // fall through to the one-folder live listing, then the archive
+    }
+  }
+
   if (ref.section_id) {
     const live = await tryLive(ctx, "materials", { section_id: ref.section_id, folder_id });
     if (live.ok) {
@@ -402,6 +420,66 @@ export async function listMaterialsTool(ctx, { course, folder_id, path: subPath,
     path: path.relative(ARCHIVE_ROOT, baseDir),
     entries: tree.map(stripAbs),
   };
+}
+
+const FIND_RESULT_CAP = 60;
+
+/**
+ * find_material: search item titles (and the folder path they sit in) across
+ * a course's whole Materials tree, or every course's, live. One walk per
+ * course, cached for 10 minutes.
+ */
+export async function findMaterialTool(ctx, { query, course, kind }) {
+  if (!query || !String(query).trim()) throw new Error("find_material needs a query");
+  if (!ctx.bridge || !ctx.bridge.isConnected()) {
+    return {
+      source: "unavailable",
+      as_of: new Date().toISOString(),
+      note: "No extension connected; find_material walks Materials live. Use search (archive only, may be stale) instead.",
+      hits: [],
+    };
+  }
+
+  let courses;
+  if (course) {
+    const ref = await resolveCourseRef(ctx, course);
+    if (!ref.section_id) throw new Error(`No section_id known for "${ref.name}"`);
+    courses = [{ section_id: ref.section_id, title: ref.name }];
+  } else {
+    const list = await listCoursesTool(ctx);
+    courses = list.courses.filter((c) => c.section_id);
+  }
+
+  const walks = await Promise.all(
+    courses.map((c) =>
+      walkMaterials(ctx.bridge, c.section_id).then(
+        (w) => ({ c, w }),
+        (err) => ({ c, error: err.message || String(err) }),
+      ),
+    ),
+  );
+
+  const hits = [];
+  const notes = [];
+  for (const { c, w, error } of walks) {
+    if (error) { notes.push(`${c.title}: ${error}`); continue; }
+    if (w.truncated) notes.push(`${c.title}: tree has more than ${w.folders} folders; only those were searched`);
+    for (const row of w.rows) {
+      if (kind && row.kind !== kind) continue;
+      if (matchesQuery(row, query)) hits.push({ course: c.title, section_id: c.section_id, ...row });
+    }
+  }
+  const out = {
+    source: "live",
+    as_of: new Date().toISOString(),
+    query,
+    courses_searched: walks.filter((x) => !x.error).length,
+    total_hits: hits.length,
+    hits: hits.slice(0, FIND_RESULT_CAP),
+  };
+  if (hits.length > FIND_RESULT_CAP) notes.push(`showing ${FIND_RESULT_CAP} of ${hits.length}; narrow the query or pass course`);
+  if (notes.length) out.note = notes.join("; ");
+  return out;
 }
 
 function stripAbs(row) {
@@ -802,8 +880,76 @@ const PAGE_IMAGE_MAX = 6;
  * first few images fetched, so Claude can see them. Each goes through
  * fetchPage, so the same address guard and caps apply.
  */
+// Google Docs/Slides/Sheets, Drive files and Drive folders need the user's
+// Google sign-in, so they go through the extension's `file` op, not a plain GET.
+function isGoogleUrl(url) {
+  try {
+    const h = new URL(url).hostname;
+    return h === "docs.google.com" || h === "drive.google.com";
+  } catch {
+    return false;
+  }
+}
+
+const isDriveFolder = (url) => /drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\//.test(url);
+
+const decodeEntities = (s) =>
+  String(s)
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&#x27;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+
+/** Drive's embeddedfolderview HTML → [{ title, url, kind: "folder"|"file" }]. */
+export function parseDriveFolder(html) {
+  const out = [];
+  for (const chunk of String(html).split(/<div class="flip-entry"/).slice(1)) {
+    const href = (chunk.match(/<a href="([^"]+)"/) || [])[1];
+    const title = (chunk.match(/class="flip-entry-title">([^<]*)</) || [])[1];
+    if (!href) continue;
+    const url = decodeEntities(href);
+    out.push({ title: decodeEntities(title || "").trim() || url, url, kind: isDriveFolder(url) ? "folder" : "file" });
+  }
+  return out;
+}
+
+async function fetchGoogle(ctx, url) {
+  const cached = await readCachedFile(url);
+  let meta;
+  let data;
+  if (cached && Date.now() - new Date(cached.meta.fetchedAt).getTime() < 60 * 60 * 1000) {
+    ({ meta, data } = cached);
+  } else {
+    const live = await tryLive(ctx, "file", { url });
+    if (!live.ok) {
+      throw new Error(`Google link needs the extension (signed-in Chrome) and it failed: ${live.reason}`);
+    }
+    const d = live.data || {};
+    data = Buffer.from(d.base64 || "", "base64");
+    meta = { name: d.name || null, mime: d.mime || null, size: d.size ?? data.length, fetchedAt: new Date().toISOString() };
+    await writeCachedFile(url, meta, data);
+  }
+  const base = { source: "live", as_of: meta.fetchedAt, url };
+  if (isDriveFolder(url)) {
+    const entries = parseDriveFolder(data.toString("utf8"));
+    return {
+      ...base,
+      kind: "drive_folder",
+      entries,
+      note: entries.length
+        ? "Open a file or subfolder by passing its url to fetch_page."
+        : "No entries found: the folder is empty, or this Google account can't see it.",
+    };
+  }
+  const file = await materializeMaterialFile({ url }, meta, data);
+  return { ...base, ...file };
+}
+
 export async function fetchPageTool(ctx, { url, include_images } = {}, { fetchImpl = fetchPage } = {}) {
   if (!url || !url.trim()) throw new Error("fetch_page needs a url");
+  if (isGoogleUrl(url.trim())) return fetchGoogle(ctx, url.trim());
   const result = await fetchImpl(url.trim());
   const out = { source: "web", as_of: result.fetched_at, ...result };
   const imageOnly = result.kind === "html" && (result.text || "").trim().length < 200 && result.images?.length;

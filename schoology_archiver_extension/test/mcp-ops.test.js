@@ -390,9 +390,19 @@ test('file: Google returning HTML instead of the file is error: "schoology" with
   assert.match(r.message, /no access|too large/i);
 });
 
-test('file: a Google Form or Drive folder link is bad_args (nothing to download)', async () => {
+test('file: a Drive folder is fetched as its embedded folder view', async () => {
   const client = fakeClient();
-  const bad = ['https://docs.google.com/forms/d/e/abc/viewform', 'https://drive.google.com/drive/folders/abc123'];
+  let seenUrl;
+  const fetchFn = async (u) => { seenUrl = u; return fakeRes({ url: u, headers: { 'content-type': 'text/html' } }); };
+  const r = await runMcpOp('file', { url: 'https://drive.google.com/drive/folders/abc123?resourcekey=0-rk&usp=sharing' }, { client, fetch: fetchFn });
+  assert.equal(r.ok, true);
+  assert.equal(seenUrl, 'https://drive.google.com/embeddedfolderview?id=abc123&resourcekey=0-rk');
+  assert.equal(r.data.url, 'https://drive.google.com/drive/folders/abc123?resourcekey=0-rk&usp=sharing');
+});
+
+test('file: a Google Form link is bad_args (nothing to download)', async () => {
+  const client = fakeClient();
+  const bad = ['https://docs.google.com/forms/d/e/abc/viewform'];
   for (const url of bad) {
     const r = await runMcpOp('file', { url }, { client, fetch: async () => { throw new Error('should not fetch'); } });
     assert.deepEqual(r, { ok: false, error: 'bad_args' }, url);

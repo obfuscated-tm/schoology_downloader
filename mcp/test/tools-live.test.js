@@ -168,3 +168,75 @@ test("open_material caps file fetches at 5 and skips fetching when fetch_files i
   assert.equal(noFetch.file_contents, undefined);
   assert.equal(fileFetches, 0);
 });
+
+// A two-course Materials tree: Physics root -> "Unit 1" -> "Notes" -> a PDF item.
+function treeBridge() {
+  const tree = {
+    "1111111111:": [
+      { kind: "folder", title: "Unit 1", id: "10", url: "https://x/course/1111111111/materials?f=10" },
+      { kind: "assignment", title: "Lab Report", id: "77", url: "https://x/assignment/77" },
+    ],
+    "1111111111:10": [{ kind: "folder", title: "Notes", id: "11", url: "https://x/course/1111111111/materials?f=11" }],
+    "1111111111:11": [{ kind: "document", title: "Vectors Answer Key", id: "12", url: "https://x/attachment/12/source/a" }],
+    "2222222222:": [{ kind: "document", title: "Syllabus", id: "20", url: "https://x/attachment/20/source/b" }],
+  };
+  return new FakeBridge((op, args) => {
+    if (op === "courses") return [
+      { section_id: "1111111111", title: "Physics" },
+      { section_id: "2222222222", title: "World History" },
+    ];
+    if (op === "materials") return { section_id: args.section_id, folder_id: args.folder_id || null, rows: tree[`${args.section_id}:${args.folder_id || ""}`] || [] };
+    throw new Error(`unexpected op ${op}`);
+  });
+}
+
+test("list_materials with depth walks subfolders live, tagging each row with its folder path", async () => {
+  const bridge = treeBridge();
+  const r = await toolsMod.listMaterialsTool(fakeCtx(bridge), { course: "1111111111", depth: 3 });
+  assert.equal(r.source, "live");
+  assert.equal(r.folders, 3);
+  const key = r.rows.find((x) => x.title === "Vectors Answer Key");
+  assert.equal(key.path, "Unit 1 / Notes");
+  const shallow = await toolsMod.listMaterialsTool(fakeCtx(treeBridge()), { course: "1111111111", depth: 2 });
+  assert.ok(!shallow.rows.some((x) => x.title === "Vectors Answer Key"));
+});
+
+test("find_material searches every course's tree in one call, and caches the walk", async () => {
+  const bridge = treeBridge();
+  const ctx = fakeCtx(bridge);
+  const r = await toolsMod.findMaterialTool(ctx, { query: "answer key" });
+  assert.equal(r.source, "live");
+  assert.equal(r.courses_searched, 2);
+  assert.deepEqual(r.hits.map((h) => [h.course, h.title, h.path]), [["Physics", "Vectors Answer Key", "Unit 1 / Notes"]]);
+  const before = bridge.calls.filter((c) => c.op === "materials").length;
+  const again = await toolsMod.findMaterialTool(ctx, { query: "syllabus" });
+  assert.equal(again.hits[0].course, "World History");
+  assert.equal(bridge.calls.filter((c) => c.op === "materials").length, before, "second search reuses the walk");
+  const byPath = await toolsMod.findMaterialTool(ctx, { query: "notes", kind: "document" });
+  assert.equal(byPath.hits[0].title, "Vectors Answer Key");
+});
+
+test("fetch_page lists a Drive folder through the extension", async () => {
+  const html = `<div class="flip-entries"><div class="flip-entry" id="entry-a"><a href="https://drive.google.com/file/d/a1/view?usp=drive_web" target="_blank"><div class="flip-entry-info"><div class="flip-entry-title">Chapter 1 &amp; 2.pdf</div></div></a></div><div class="flip-entry" id="entry-b"><a href="https://drive.google.com/drive/folders/b2"><div class="flip-entry-title">Unit 2</div></a></div></div>`;
+  const bridge = new FakeBridge((op, args) => {
+    if (op === "file") return { url: args.url, name: null, mime: "text/html", size: html.length, base64: Buffer.from(html).toString("base64") };
+    throw new Error("unexpected op");
+  });
+  const r = await toolsMod.fetchPageTool(fakeCtx(bridge), { url: "https://drive.google.com/drive/folders/zzz?resourcekey=0-k" });
+  assert.equal(r.kind, "drive_folder");
+  assert.deepEqual(r.entries, [
+    { title: "Chapter 1 & 2.pdf", url: "https://drive.google.com/file/d/a1/view?usp=drive_web", kind: "file" },
+    { title: "Unit 2", url: "https://drive.google.com/drive/folders/b2", kind: "folder" },
+  ]);
+});
+
+test("fetch_page reads a Google Doc through the extension as PDF text", async () => {
+  const pdf = await makeMinimalPdf("Doc Export Marker QRS");
+  const bridge = new FakeBridge((op, args) => {
+    if (op === "file") return { url: args.url, name: "doc.pdf", mime: "application/pdf", size: pdf.length, base64: Buffer.from(pdf).toString("base64") };
+    throw new Error("unexpected op");
+  });
+  const r = await toolsMod.fetchPageTool(fakeCtx(bridge), { url: "https://docs.google.com/document/d/docid123/edit" });
+  assert.equal(r.kind, "pdf");
+  assert.match(r.text, /Doc Export Marker QRS/);
+});

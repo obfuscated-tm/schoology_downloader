@@ -1,6 +1,6 @@
 {
   "name": "schoology-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Local, read-only MCP server exposing the user's Schoology coursework (live via a Chrome extension bridge, snapshot cache, or the Schoology Archive) to Claude Desktop.",
   "type": "module",
   "main": "server.js",
