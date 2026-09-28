@@ -2,7 +2,7 @@
 
 Saves a whole Schoology course to `Downloads/Schoology Archive/<Course name>/` so it survives when the course is deleted at the end of the term, and so you can hand the folder to Claude (Cowork) for quizzes and study help.
 
-Replaces `../schoology_downloader.py`. No cookies to copy: it uses your normal Schoology login in Chrome.
+No cookies to copy: it uses your normal Schoology login in Chrome.
 
 ## Install (once)
 

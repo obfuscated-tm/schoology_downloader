@@ -2,13 +2,12 @@
 
 Keep your Schoology coursework after the term ends, see more on Schoology's own pages, and let Claude help you study from it.
 
-This repo has three parts:
+This repo has two parts:
 
 | Part | Folder | What it does | Version |
 |---|---|---|---|
 | **Chrome extension** ("Schoology Course Archiver") | [`schoology_archiver_extension/`](schoology_archiver_extension/) | Archives whole courses to disk, adds overlays to Schoology pages (grades what-if, To Do, material markers), and syncs with neo-plan | **1.10.0** |
 | **MCP server** (`schoology-mcp`) | [`mcp/`](mcp/) | Lets Claude Desktop read your Schoology: to-do, grades, assignments, materials, and the archive | **1.1.0** |
-| **Python downloader** (legacy) | [`schoology_downloader.py`](schoology_downloader.py) | The original one-course downloader. Replaced by the extension | frozen |
 
 Everything runs on your own Mac, through your normal Schoology login in Chrome. Nothing is sent anywhere except to Schoology, Google (for Docs exports), and neo-plan if you give it a token.
 
@@ -32,7 +31,6 @@ Everything runs on your own Mac, through your normal Schoology login in Chrome. 
   - [Example prompts](#example-prompts)
   - [Course websites](#course-websites-sitesjson)
   - [Environment variables](#environment-variables)
-- [3. The legacy Python downloader](#3-the-legacy-python-downloader)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Versioning and releases](#versioning-and-releases)
@@ -363,38 +361,6 @@ All optional. Set them in the `env` block of the Claude Desktop config.
 
 ---
 
-## 3. The legacy Python downloader
-
-[`schoology_downloader.py`](schoology_downloader.py) is the original tool, kept for reference. **Use the extension instead:** it needs no cookie copying, saves far more (submissions, quizzes, grades, Google exports), and tracks changes.
-
-If you still want to run it:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install requests beautifulsoup4
-```
-
-Then edit the `CONFIG` block at the top of the script:
-
-```python
-COURSE_ID = "8141837521"          # from the URL: /course/<ID>/materials
-OUTPUT_DIR = "./schoology_files"
-COOKIES = {
-    "SESS…": "<value>",           # DevTools → Application → Cookies → the SESS… cookie
-}
-```
-
-```bash
-python3 schoology_downloader.py
-```
-
-Files go to `./schoology_files/<Course Name>/`. It skips files it already has, so it's safe to re-run. Full steps are in [`HOW_TO_RUN.txt`](HOW_TO_RUN.txt).
-
-> ⚠️ Your `SESS…` cookie logs in as you. Don't commit it or share it.
-
----
-
 ## Troubleshooting
 
 | Problem | Fix |
@@ -443,8 +409,7 @@ schoology_downloader/
 │   ├── sites.json                  course websites
 │   ├── src/                        tools, bridge, cache, archive reader, PDF text, network guard
 │   └── test/
-├── docs/                           design docs (bridge contract, overlay UI)
-└── schoology_downloader.py         legacy Python downloader
+└── docs/                           design docs (bridge contract, overlay UI)
 ```
 
 The extension's [README](schoology_archiver_extension/README.md) has a file-by-file map.

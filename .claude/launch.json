@@ -12,30 +12,6 @@
         "schoology_archiver_extension"
       ],
       "port": 8765
-    },
-    {
-      "name": "extension-static-2",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8766",
-        "--directory",
-        "schoology_archiver_extension"
-      ],
-      "port": 8766
-    },
-    {
-      "name": "extension-static-3",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8767",
-        "--directory",
-        "schoology_archiver_extension"
-      ],
-      "port": 8767
     }
   ]
 }
