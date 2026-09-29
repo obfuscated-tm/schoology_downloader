@@ -15,10 +15,11 @@ const MCP_CONNECT_ALARM = 'mcp-connect';
 const SYNC_EVERY_MIN = 15;
 const TAB_SYNC_GAP_MS = 10 * 60_000; // a Schoology page load starts a sync, at most every 10 min
 // What a content script on a Schoology page may ask neo-plan. Never the token,
-// the server, the course map or a raw enrich. Never Turn in either: on
-// Schoology's pages work is turned in only with Schoology's own Submit button.
-// 'work' (marking studied/done, or back) is the one write besides add/remove.
-const CONTENT_OPS = new Set(['items', 'addItem', 'remove', 'restore', 'work']);
+// the server, the course map or a raw enrich. The writes: add/remove, 'work'
+// (marking studied/done, or back), and Turn in / put back, which only the To Do
+// sidebars' rows offer (overlays/todorows.js); an assignment page still turns
+// work in only with Schoology's own Submit button.
+const CONTENT_OPS = new Set(['items', 'addItem', 'remove', 'restore', 'work', 'turnIn', 'putBack']);
 
 // ── The archive job: one at a time, in the offscreen document ───────────────
 // There is no side panel and no tab any more — the Archive button opens a

@@ -122,10 +122,26 @@ async function getEvents(list) {
 }
 const mem = {};
 const store = { async get(k) { return mem[k]; }, async set(k, v) { mem[k] = v; } };
+// A fake neo-plan: a few rows already in it, in each state the sidebar draws
+// (missing, done not turned in, turned in, a test); the rest offer "+ Add".
+const PLAN = new Map([
+  ['1', { id: 'p1', source_id: '1', type: 'assignment', work: 'todo', missing: true }],
+  ['3', { id: 'p3', source_id: '3', type: 'assignment', work: 'ready' }],
+  ['10', { id: 'p10', source_id: '10', type: 'assignment', work: 'todo' }],
+  ['11', { id: 'p11', source_id: '11', type: 'assignment', work: 'ready', cleared: true, cleared_by: 'user' }],
+  ['16', { id: 'p16', source_id: '16', type: 'exam', work: 'todo' }],
+]);
+const byId = (id) => [...PLAN.values()].find((it) => it.id === id);
+const answer = (it, patch) => { Object.assign(it, patch); return { ok: true, status: 200, data: { ...it } }; };
 async function call(op, args) {
   await wait(120);
-  if (op === 'items') return { ok: true, status: 200, data: { items: [] } }; // nothing in neo-plan yet: every row offers "+ Add to neo-plan"
-  if (op === 'addItem') return { ok: true, status: 200, data: { id: 'new', work: 'todo' } };
+  if (op === 'items') return { ok: true, status: 200, data: { items: args.schoology_ids.filter((id) => PLAN.has(id)).map((id) => ({ ...PLAN.get(id) })) } };
+  if (op === 'addItem') { const it = { id: `p${args.item.schoology_id}`, source_id: args.item.schoology_id, type: 'assignment', work: 'todo' }; PLAN.set(it.source_id, it); return { ok: true, status: 200, data: { ...it } }; }
+  const it = byId(args.id);
+  if (!it) return { ok: false, status: 404, data: {} };
+  if (op === 'work') return answer(it, { work: args.work });
+  if (op === 'turnIn') return it.type === 'assignment' ? answer(it, { cleared: true, cleared_by: 'user', missing: false }) : { ok: false, status: 409, data: { error: 'type' } };
+  if (op === 'putBack') return answer(it, { cleared: false, work: 'ready' }); // back done and owed, as neo-plan does
   return { ok: false, status: 404, data: {} };
 }
 

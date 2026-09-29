@@ -4,8 +4,16 @@ The extension and the MCP server are versioned separately (see [Versioning and r
 
 Entries before extension 1.10.0 / MCP 1.1.0 were reconstructed from the git history. Apart from MCP 1.0.0 (tag `mcp-v1.0.0`), those versions were never tagged, so they're listed by date.
 
-## Unreleased
+## 2026-09-28 — Extension 1.11.0
 
+Tag: `ext-v1.11.0`
+
+### Extension
+- To Do sidebars (home and course): each row keeps its status under the due date and gets stacked buttons at its right: **✓ Done** / **↶ Not done**, then **↑ Turn in** on an open assignment or **↶ Undo** on a turned-in one.
+- Grades: the overlay no longer squeezes the title column. Grades sit where plain Schoology puts them; the empty comment column gives up the room instead.
+- Content scripts may now ask neo-plan to turn in and put back (only the To Do panels offer it; an assignment page still turns in only through Schoology's Submit).
+
+### Repo
 - MIT license.
 - README rewritten as a friendly, picture-first guide with screenshots (`docs/images/`); technical detail moved to a collapsible reference at the bottom.
 - Repo README and this changelog, written for anyone setting it up (any school's Schoology, neo-plan optional, recommended archive location, grading-scale note).

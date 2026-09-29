@@ -357,9 +357,11 @@ async function mountCourse({ doc, root: scope, courseId }) {
   }
   const cell = (tr, ...kids) => { const root = cells.get(tr); root.replaceChildren(root.firstChild, ...kids.filter(Boolean)); };
 
+  const inlineHosts = []; // for pinTitles' measuring
   function inline(where, tag, { wrap = false } = {}) {
     const { host, root } = createHost(tag, INLINE_CSS);
     keepEvents(host);
+    inlineHosts.push(host);
     host.style.marginLeft = '8px'; // inline: Schoology's own margin reset beats :host
     const box = where.querySelector('.td-content-wrapper') || where;
     // The wrapper is a one-line flex box. With `wrap`, ours may drop to a
@@ -691,10 +693,39 @@ async function mountCourse({ doc, root: scope, courseId }) {
     gc.style.opacity = want ? '.5' : '';
   }
 
+  // Schoology gives its (mostly empty) comment column a percentage width, so
+  // our column and the grade cell's additions would come out of the title
+  // column and pull every grade left. While the overlay is on, the title
+  // column is pinned to the width it has without them (measured once the table
+  // is on screen, again after a resize) and the comment column goes to auto
+  // (a percentage outranks a px width), so it gives up the room instead.
+  let titleW = null; // px, or null: not measured yet
+  const titleCells = rows.map((r) => r.el && titleCell(r.el)).filter(Boolean);
+  const commentCells = rows.map((r) => r.el?.querySelector('.comment-column')).filter(Boolean);
+  function pinTitles() {
+    const on = isOverlayOn();
+    if (on && titleW == null) {
+      const probe = titleCells.find(isShown);
+      if (!probe) return; // collapsed: measured when Schoology opens it
+      const ours = [...ourCells, ...inlineHosts];
+      const was = ours.map((n) => n.style.display);
+      for (const n of ours) n.style.display = 'none';
+      for (const c of [...titleCells, ...commentCells]) c.style.width = '';
+      titleW = Math.round(probe.getBoundingClientRect().width);
+      ours.forEach((n, i) => { n.style.display = was[i]; });
+    }
+    const w = on && titleW ? `${titleW}px` : '';
+    for (const c of titleCells) if (c.style.width !== w) c.style.width = w;
+    const cw = w ? 'auto' : '';
+    for (const c of commentCells) if (c.style.width !== cw) c.style.width = cw;
+  }
+  try { window.addEventListener('resize', debounce(() => { titleW = null; pinTitles(); }, 150)); } catch { /* tests */ }
+
   // Our own rows follow the overlay switch and Schoology's collapsing.
   function syncRows() {
     const col = isOverlayOn() ? '' : 'none';
     for (const td of ourCells) if (td.style.display !== col) td.style.display = col;
+    pinTitles();
     for (const r of ourRows) {
       const d = isOverlayOn() && r.shown() ? '' : 'none';
       if (r.tr.style.display !== d) r.tr.style.display = d;

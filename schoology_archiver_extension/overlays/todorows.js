@@ -76,12 +76,12 @@ export const ROW_CSS = `
 .todo-h { font-size: 15px; font-weight: 600; padding: 0 0 6px; margin: 0 0 10px; border-bottom: 1px solid var(--line); }
 .nothing { color: var(--faint); padding: 8px 0 2px; }
 .row {
-  display: grid; grid-template-columns: 14px 1fr; grid-template-rows: auto auto;
+  display: grid; grid-template-columns: 14px 1fr auto; grid-template-rows: auto auto auto;
   align-items: stretch; column-gap: 8px; row-gap: 2px; padding: 6px 0; border-bottom: 1px solid #E9ECF0;
 }
 .row:last-child { border-bottom: 0; }
 .tag {
-  grid-row: 1 / span 2; grid-column: 1;
+  grid-row: 1 / span 3; grid-column: 1;
   writing-mode: vertical-rl; transform: rotate(180deg);
   display: flex; align-items: center; justify-content: center;
   width: 14px; font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: .04em;
@@ -104,8 +104,10 @@ a.title.exam { font-weight: 700; }
 }
 .due { white-space: nowrap; }
 .due.over { color: var(--bad); }
-.mark-group { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
-.mark-slot { display: inline-flex; align-items: center; min-width: 0; }
+.status { grid-column: 2; grid-row: 3; min-width: 0; font-size: 12px; }
+.status[hidden] { display: none; }
+.mark-col { grid-column: 3; grid-row: 1 / span 3; align-self: center; padding-left: 8px; }
+.mark-col:empty, .mark-col[hidden] { display: none; }
 .more { display: block; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; margin-top: 4px; font-size: 12px; }
 .err { color: var(--dim); padding: 8px 0; }
 `;
@@ -145,22 +147,24 @@ export function buildRow(item) {
   } else {
     sub.append(el('span', 'due', formatDue(item.due)));
   }
-  const markSlot = el('span', 'mark-slot');
-  const markGroup = el('span', 'mark-group'); // "· <marker>" wraps to its own line as one unit, never an orphaned dot
-  markGroup.append(document.createTextNode('· '), markSlot);
-  sub.append(markGroup);
-  rowEl.append(tag, wrap, sub);
+  // The state's words ("○ To do", "● Done, not submitted", "✓ Turned in") on
+  // a line under the due date; its buttons (Done, Turn in, Undo) stacked in a
+  // column at the row's right (marks.js, marker.js's `actions`).
+  const statusSlot = el('div', 'status');
+  const markSlot = el('div', 'mark-col');
+  rowEl.append(tag, wrap, sub, statusSlot, markSlot);
   const onState = (state, planItem) => {
     const { text, cls } = tagFor(planItem);
     tag.className = `tag ${cls}`.trim();
     tag.textContent = text;
     a.classList.toggle('exam', !!(planItem && planItem.type === 'exam'));
-    // marks.js hides the marker host itself only for 'unknown' (a graded row,
-    // or neo-plan hasn't answered yet): the leading "· " would dangle alone.
-    markGroup.hidden = state.kind === 'unknown';
+    // 'unknown' (a graded row, or neo-plan hasn't answered yet) draws nothing:
+    // no empty column.
+    statusSlot.hidden = markSlot.hidden = state.kind === 'unknown';
   };
   return {
-    el: rowEl, titleEl: a, markSlot, onState,
+    el: rowEl, titleEl: a, markSlot, statusSlot, onState,
     schoology_id: item.schoology_id, title: item.title, section_id: item.section_id || null, graded: item.graded,
+    turnIn: true, // the sidebars' rows: icon buttons for done / Turn in / its undo (marks.js)
   };
 }

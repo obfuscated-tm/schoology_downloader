@@ -12,9 +12,14 @@ elements next to them, and only information Schoology doesn't already show.
 Never repeat what's on the page (course %, category %, due date, score,
 instructions).
 
-- Turning work in happens **only with Schoology's own Submit button**. The
-  extension has no Turn in button on Schoology pages. Submit detection (already
-  built) clears the item in neo-plan.
+- On an assignment page, turning work in happens **only with Schoology's own
+  Submit button**; submit detection (already built) clears the item in neo-plan.
+  The one exception is the To Do sidebars (home and a course's): each row keeps
+  its status words under the due date ("○ To do", "● Done, not submitted",
+  "✓ Turned in", Missing), and has buttons stacked at its right, a glyph and a
+  short word each: **✓ Done** / **↶ Not done** (a test: Studied / Not studied),
+  then **↑ Turn in** on an open assignment (neo-plan's turn-in; assignments
+  only), or **↶ Undo** on a turned-in one (put back: done, not turned in).
 - Everything the extension adds sits in its own shadow DOM (as now) and uses the
   overlay's own look (below), not neo-plan's DESIGN.md.
 - **Overlay switch.** One on/off setting, kept in `chrome.storage.local` and applied on

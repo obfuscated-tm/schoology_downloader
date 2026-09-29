@@ -28,6 +28,7 @@ Your Schoology home page gets a cleaner **To Do** list:
 - the full date and time for everything
 - overdue work in **red**, with how many days late
 - a **Due today** tag
+- each item's status (to do, done, turned in, missing), with **Done** and **Turn in** buttons right there (and **Undo** if you change your mind)
 
 Each class's own page gets the same list for just that class.
 
@@ -253,7 +254,7 @@ flowchart LR
 
 | Part | Folder | Version |
 |---|---|---|
-| Chrome extension (Manifest V3, plain ES modules, no build step) | [`schoology_archiver_extension/`](schoology_archiver_extension/) | 1.10.0 |
+| Chrome extension (Manifest V3, plain ES modules, no build step) | [`schoology_archiver_extension/`](schoology_archiver_extension/) | 1.11.0 |
 | MCP server (Node, stdio) | [`mcp/`](mcp/) | 1.1.0 |
 
 - The **extension** is the only part that talks to Schoology. It reads normal pages with your login, because many districts turn off Schoology's API for students.
@@ -431,7 +432,7 @@ The extension and the MCP server each have their own [semantic version](https://
 
 | Component | Version lives in | Tag |
 |---|---|---|
-| Extension | `schoology_archiver_extension/manifest.json` | `ext-v1.10.0` |
+| Extension | `schoology_archiver_extension/manifest.json` | `ext-v1.11.0` |
 | MCP server | `mcp/package.json` | `mcp-v1.1.0` |
 
 If a change touches the bridge contract ([`docs/MCP-BRIDGE.md`](docs/MCP-BRIDGE.md)), bump both.
@@ -439,7 +440,7 @@ If a change touches the bridge contract ([`docs/MCP-BRIDGE.md`](docs/MCP-BRIDGE.
 **To release:** bump the version, add a [`CHANGELOG.md`](CHANGELOG.md) entry, run both test suites, commit, then tag and push:
 
 ```bash
-git tag -a ext-v1.11.0 -m "Extension 1.11.0"
+git tag -a ext-v1.12.0 -m "Extension 1.12.0"
 ```
 
 ```bash

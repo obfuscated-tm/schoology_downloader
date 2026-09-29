@@ -23,6 +23,12 @@ import { MARK_CSS, markerFor } from './marker.js';
 const CSS = MARK_CSS + `
 :host { font-size: 12px; line-height: 18px; color: var(--dim); white-space: nowrap; }
 .right { display: inline-flex; align-items: center; gap: 8px; height: var(--line-h, 18px); }
+/* todo.js's own rows: the buttons, stacked, in the row's right-hand column;
+   the state's words on a line of their own under the due date. */
+:host([data-line]) { display: block; }
+:host([data-line]) .right { display: flex; flex-direction: column; align-items: stretch; gap: 4px; height: auto; }
+:host([data-status]) { display: block; white-space: normal; }
+:host([data-status]) .right { display: flex; flex-wrap: wrap; gap: 4px 8px; height: auto; }
 `;
 const TAG = 'np-mark';
 
@@ -30,6 +36,9 @@ const TAG = 'np-mark';
  * rowsIn(doc) → [{ el, schoology_id, title, due?, realm?, section_id?, titleEl?,
  * graded?, markSlot?, onState? }]. `el` is the row the marker goes in; `titleEl`,
  * when the title isn't a link to the assignment, what to line it up with.
+ * `turnIn`, when true (the To Do sidebars' rows), adds buttons: Done / Not
+ * done, Turn in on an open assignment, and its Undo (marker.js's `actions`),
+ * stacked in `markSlot`, with the state's words in `statusSlot`.
  * `markSlot`, when given (todo.js's own grid rows), is where the marker host
  * is placed instead — inline, with none of the float/flex placement or the
  * align() nudging other pages need. `onState(state, item)`, when given, is
@@ -65,14 +74,28 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
     // A graded row shows its grade itself: nothing to add (not "Not studied").
     const s = row.graded ? { kind: 'unknown' } : rowState(undefined, it);
     // item and rowDue left out: no due date after the circle (the row has it).
-    const { kids, label } = markerFor(s, {
+    // neo-plan turns in assignments only (anything else is a 409).
+    const canTurnIn = row.turnIn && it?.type === 'assignment';
+    const { kids, label, status } = markerFor(s, {
       busy: m.busy,
       onAdd: () => add(row),
       onRestore: () => restore(row),
       onToggle: () => toggle(row),
+      actions: !!row.turnIn, // the sidebars: status words, plus buttons of their own
+      onTurnIn: canTurnIn ? () => turnIn(row) : undefined,
+      onPutBack: row.turnIn ? () => putBack(row) : undefined,
     });
     const err = errors.get(row.schoology_id);
-    if (err) kids.push(el('span', 'bad', err));
+    // The sidebars' rows: the state's words in their own slot (under the due
+    // date), the buttons in this host (the row's right-hand column).
+    const words = m.statusRoot ? [...(status || [])] : kids;
+    if (err) words.push(el('span', 'bad', err));
+    if (m.statusRoot) {
+      m.statusHost.hidden = !words.length;
+      const line = el('span', 'right');
+      line.append(...words);
+      m.statusRoot.replaceChildren(m.statusRoot.firstChild, line);
+    }
     m.host.hidden = !kids.length;
     m.host.title = label;
     if (label) m.host.setAttribute('aria-label', label); else m.host.removeAttribute('aria-label');
@@ -112,6 +135,9 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
     },
   }));
   const restore = (row) => change(row, () => call('restore', { id: known.get(row.schoology_id)?.id }));
+  // Turn in, and its undo: neo-plan puts an assignment back done, not turned in.
+  const turnIn = (row) => change(row, () => call('turnIn', { id: known.get(row.schoology_id)?.id }));
+  const putBack = (row) => change(row, () => call('putBack', { id: known.get(row.schoology_id)?.id }));
   // Studied/not studied, done/not done: flips instantly (the state known.get
   // already shows before the call answers), and rolls back on refusal.
   function toggle(row) {
@@ -132,7 +158,7 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
   const FLEX = { flex: 'none', alignSelf: 'flex-start', marginLeft: 'auto', paddingLeft: '8px', paddingRight: '2px' };
   const BLOCK = { float: 'right', marginLeft: '8px' };
   function place(host, row) {
-    if (row.markSlot) { row.markSlot.append(host); return; } // todo.js's own grid slot: no float/flex, no nudging
+    if (row.markSlot) { host.setAttribute('data-line', ''); row.markSlot.append(host); return; } // todo.js's own grid slot: no float/flex, no nudging
     const rowEl = row.el;
     const flex = /flex/.test(getComputedStyle(rowEl).display);
     Object.assign(host.style, flex ? FLEX : BLOCK);
@@ -160,6 +186,16 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
       host.hidden = true;
       place(host, row);
       const x = { row, host, root, busy: false };
+      if (row.statusSlot) {
+        const s2 = createHost(TAG, CSS);
+        ours.add(s2.host);
+        keepEvents(s2.host);
+        s2.host.hidden = true;
+        s2.host.setAttribute('data-status', '');
+        row.statusSlot.append(s2.host);
+        x.statusHost = s2.host;
+        x.statusRoot = s2.root;
+      }
       list.push(x);
       drawMark(x);
     }
