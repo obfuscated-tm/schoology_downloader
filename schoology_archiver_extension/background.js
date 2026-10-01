@@ -19,7 +19,7 @@ const TAB_SYNC_GAP_MS = 10 * 60_000; // a Schoology page load starts a sync, at 
 // (marking studied/done, or back), and Turn in / put back, which only the To Do
 // sidebars' rows offer (overlays/todorows.js); an assignment page still turns
 // work in only with Schoology's own Submit button.
-const CONTENT_OPS = new Set(['items', 'addItem', 'remove', 'restore', 'work', 'turnIn', 'putBack']);
+const CONTENT_OPS = new Set(['items', 'addItem', 'remove', 'restore', 'work', 'setType', 'turnIn', 'putBack']);
 
 // ── The archive job: one at a time, in the offscreen document ───────────────
 // There is no side panel and no tab any more — the Archive button opens a

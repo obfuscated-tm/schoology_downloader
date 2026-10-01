@@ -134,6 +134,11 @@ async function call(op, args) {
   const id = String(args.id).replace(/^np-/, '');
   if (op === 'remove') { ITEMS[id] = { ...ITEMS[id], removed: true }; return { ok: true, status: 200, data: asItem(id) }; }
   if (op === 'restore') { ITEMS[id] = { ...ITEMS[id], removed: false }; return { ok: true, status: 200, data: asItem(id) }; }
+  // neo-plan's typeChange: no date, no test (?nodate to see the refusal).
+  if (op === 'setType') {
+    if (args.itemType === 'exam' && q.has('nodate')) return { ok: false, status: 409, data: { error: 'type', problem: 'Set a date first' } };
+    ITEMS[id] = { ...ITEMS[id], type: args.itemType }; return { ok: true, status: 200, data: asItem(id) };
+  }
   return { ok: false, status: 404, data: {} };
 }
 async function send(m) {

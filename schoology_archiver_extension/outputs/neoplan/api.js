@@ -54,6 +54,12 @@ export function buildRequest(server, token, msg) {
         url: item('work'),
         init: { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ work: msg.work }) },
       };
+    case 'setType':
+      if (!ITEM_TYPES.has(msg.itemType)) throw new Error(`bad item type: ${msg.itemType}`);
+      return {
+        url: item('type'),
+        init: { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ type: msg.itemType }) },
+      };
     case 'turnIn':
       return { url: item('turn-in'), init: { method: 'POST', headers } };
     case 'putBack':
@@ -108,9 +114,11 @@ export function buildRequest(server, token, msg) {
 }
 
 const ID_RE = /^\d{1,20}$/;
+/** The types the extension can switch an item between (a meeting is made as one and stays one). */
+export const ITEM_TYPES = new Set(['assignment', 'exam', 'classwork', 'task']);
 // Ops that act on one neo-plan item by its id.
-const ITEM_OPS = new Set(['work', 'turnIn', 'putBack', 'remove', 'restore']);
-export const API_OPS = new Set(['today', 'work', 'turnIn', 'putBack', 'remove', 'restore', 'enrich', 'courses', 'setCourse', 'open', 'items', 'addItem']);
+const ITEM_OPS = new Set(['work', 'setType', 'turnIn', 'putBack', 'remove', 'restore']);
+export const API_OPS = new Set(['today', 'work', 'setType', 'turnIn', 'putBack', 'remove', 'restore', 'enrich', 'courses', 'setCourse', 'open', 'items', 'addItem']);
 
 async function call(msg) {
   const { server, token } = await getConfig();

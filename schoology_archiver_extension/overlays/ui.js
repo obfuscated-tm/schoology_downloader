@@ -22,6 +22,7 @@ export function failText(r) {
   if (r.status === 401) return 'Token needed';
   if (r.status === 0) return 'Can’t reach neo-plan';
   if ((r.status === 404 || r.status === 405) && !r.data?.error) return 'neo-plan needs an update';
+  if (typeof r.data?.problem === 'string' && r.data.problem) return r.data.problem; // neo-plan's own words: "Set a date first"
   return 'Not saved';
 }
 

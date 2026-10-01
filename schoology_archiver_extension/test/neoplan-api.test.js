@@ -35,3 +35,11 @@ test('buildRequest: addItem passes a quiz\'s type through, and drops anything el
   assert.equal('type' in body({}), false); // neo-plan decides from the title
   assert.equal('type' in body({ type: 'task' }), false);
 });
+
+test('buildRequest: setType posts { type } to the item, and refuses a meeting or anything unknown', () => {
+  const req = buildRequest('https://neo-plan.vercel.app', 'np_tok', { op: 'setType', id: '9', itemType: 'exam' });
+  assert.equal(req.url, 'https://neo-plan.vercel.app/api/extension/items/9/type');
+  assert.equal(req.init.body, JSON.stringify({ type: 'exam' }));
+  assert.throws(() => buildRequest('https://neo-plan.vercel.app', 'np_tok', { op: 'setType', id: '9', itemType: 'meeting' }));
+  assert.throws(() => buildRequest('https://neo-plan.vercel.app', 'np_tok', { op: 'setType', id: '9' }));
+});

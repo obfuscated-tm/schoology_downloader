@@ -6,7 +6,8 @@
 //             Remove from neo-plan; or Submitted · Cleared in neo-plan · Late
 //             by N days; or Graded · Moved your course grade ±N.NN · Nth
 //             lowest of M in <category>; or Add to neo-plan; or Removed · Add
-//             back. There is no Turn in here: work is turned in only with
+//             back. Then HW · Test · Task · CW, the item's type in neo-plan,
+//             one tap to change it. There is no Turn in here: work is turned in only with
 //             Schoology's own Submit button, and submit detection clears it.
 //   what-if   in Schoology's sidebar, under its Grade box, only while
 //             ungraded: "What if I get [ ] / pts" → "Course grade NN.NN% ±delta".
@@ -47,7 +48,17 @@ const CHIP_CSS = `
 .pill.bad { color: var(--bad); background: var(--bad-soft); }
 .pill.ok { color: var(--good); background: var(--good-soft); }
 .linkbtn { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+/* The type switch: HW · Test · Task · CW, the current one filled. */
+.types { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.types button { font: 500 11px/18px var(--mono); padding: 0 7px; color: var(--dim); }
+.types button + button { border-left: 1px solid var(--line); }
+.types button[aria-pressed="true"] { color: var(--surface); background: var(--ink); }
+.types button:disabled { cursor: default; }
 `;
+
+// The type switch's choices, in neo-plan's order (lib/parse.ts TYPE_ORDER), with
+// the To Do sidebars' short names. Meetings aren't offered: one is made as one.
+export const TYPE_CHOICES = [['assignment', 'HW'], ['exam', 'Test'], ['task', 'Task'], ['classwork', 'CW']];
 
 const WHATIF_CSS = `
 :host { display: block; margin: 12px 0; }
@@ -201,6 +212,8 @@ export function start({
       }
       seg(button('Remove from neo-plan', 'Remove from neo-plan', () => change('remove'), 'linkbtn dim'));
     }
+    // HW / Test / Task / CW, for any item neo-plan has and hasn't removed.
+    if (it && kind !== 'removed' && it.type !== 'meeting') seg(typeSwitch(it));
     if (state.error) seg(el('span', state.error.quiet ? 'dim' : 'bad', state.error.text));
 
     chip.replaceChildren();
@@ -210,6 +223,20 @@ export function start({
     });
     chipHost.host.hidden = !chip.childNodes.length;
     drawWhatIf();
+  }
+
+  function typeSwitch(it) {
+    const box = el('span', 'types');
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', 'Type in neo-plan');
+    for (const [type, word] of TYPE_CHOICES) {
+      const b = el('button', '', word);
+      b.setAttribute('aria-pressed', String(it.type === type));
+      b.disabled = state.busy;
+      if (it.type !== type) onClick(b, () => setType(type));
+      box.append(b);
+    }
+    return box;
   }
 
   function button(text, label, fn, cls = 'linkbtn') {
@@ -292,6 +319,17 @@ export function start({
     if (state.busy || !it) return;
     state.busy = true; state.error = null; draw();
     const r = await call(op, { id: it.id });
+    state.busy = false;
+    if (r.ok && r.data) state.item = r.data; else fail(r);
+    draw();
+  }
+
+  // HW ↔ Test ↔ Task ↔ CW. A switch neo-plan can't make says why ("Set a date first").
+  async function setType(itemType) {
+    const it = state.item;
+    if (state.busy || !it) return;
+    state.busy = true; state.error = null; draw();
+    const r = await call('setType', { id: it.id, itemType });
     state.busy = false;
     if (r.ok && r.data) state.item = r.data; else fail(r);
     draw();

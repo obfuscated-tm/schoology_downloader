@@ -12,6 +12,7 @@ Tag: `ext-v1.12.0`
 - New work goes into neo-plan by itself: an upcoming (or up to two weeks overdue) assignment or quiz that neo-plan has no item for is added without pressing **Add to neo-plan**, both when a To Do sidebar shows it and on every background sync. Anything you removed from neo-plan stays removed.
 - Quizzes go in as tests: a To Do row that links to a quiz (`/assessments/`) is sent as an exam; anything else lets neo-plan decide from the title (quiz, test, exam…), the same rule as its calendar feed. Needs the matching neo-plan update.
 - To Do sidebar adds now carry the due date (they were sent with none).
+- Assignment page: a **HW · Test · Task · CW** switch on the chip changes the item's type in neo-plan in one tap. A switch neo-plan can't make says why (e.g. "Set a date first"). Needs the matching neo-plan update.
 
 ## 2026-09-28 — Extension 1.11.0
 
