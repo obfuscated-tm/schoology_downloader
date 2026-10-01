@@ -132,6 +132,26 @@ export function tagFor(item) {
   return { text: '', cls: '' }; // unknown/still loading: no border
 }
 
+/** How far overdue an item can be and still be added to neo-plan by itself. */
+export const AUTO_ADD_OVERDUE_DAYS = 14;
+
+/**
+ * Whether a To Do item goes into neo-plan without a click when it isn't there
+ * yet: anything upcoming, and overdue work from the last two weeks (older
+ * overdue work was most likely left out on purpose). A graded item is done
+ * with. One already in neo-plan, or removed from it, is never added again
+ * (marks.js only auto-adds a row neo-plan doesn't know at all). Pure.
+ */
+export function autoAddable(item) {
+  if (item.graded) return false;
+  return !item.overdue || (item.days ?? 0) <= AUTO_ADD_OVERDUE_DAYS;
+}
+
+/** A quiz links to /course/{c}/assessments/{id}: neo-plan files it as a test. Pure. */
+export function typeFor(item) {
+  return /\/assessments?\//.test(String(item.url || '')) ? 'exam' : undefined;
+}
+
 /** One item row, as an object marks.js's rowsIn can hand straight to startMarks. */
 export function buildRow(item) {
   const rowEl = el('div', 'row');
@@ -165,6 +185,7 @@ export function buildRow(item) {
   return {
     el: rowEl, titleEl: a, markSlot, statusSlot, onState,
     schoology_id: item.schoology_id, title: item.title, section_id: item.section_id || null, graded: item.graded,
+    due: item.due || null, type: typeFor(item), autoAdd: autoAddable(item),
     turnIn: true, // the sidebars' rows: icon buttons for done / Turn in / its undo (marks.js)
   };
 }

@@ -136,7 +136,8 @@ const answer = (it, patch) => { Object.assign(it, patch); return { ok: true, sta
 async function call(op, args) {
   await wait(120);
   if (op === 'items') return { ok: true, status: 200, data: { items: args.schoology_ids.filter((id) => PLAN.has(id)).map((id) => ({ ...PLAN.get(id) })) } };
-  if (op === 'addItem') { const it = { id: `p${args.item.schoology_id}`, source_id: args.item.schoology_id, type: 'assignment', work: 'todo' }; PLAN.set(it.source_id, it); return { ok: true, status: 200, data: { ...it } }; }
+  // neo-plan's own rule: a quiz link's type, else a test word in the title (lib/import.ts looksLikeExam).
+  if (op === 'addItem') { (window.__adds ||= []).push(args.item); const it = { id: `p${args.item.schoology_id}`, source_id: args.item.schoology_id, type: args.item.type || (/\b(quiz|quizzes|test|exam|quest|midterm)\b/i.test(args.item.title) ? 'exam' : 'assignment'), work: 'todo' }; PLAN.set(it.source_id, it); return { ok: true, status: 200, data: { ...it } }; }
   const it = byId(args.id);
   if (!it) return { ok: false, status: 404, data: {} };
   if (op === 'work') return answer(it, { work: args.work });

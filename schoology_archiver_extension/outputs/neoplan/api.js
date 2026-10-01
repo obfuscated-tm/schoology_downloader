@@ -95,6 +95,8 @@ export function buildRequest(server, token, msg) {
         due_at: typeof b.due_at === 'string' && !Number.isNaN(Date.parse(b.due_at)) ? b.due_at : null,
         source_url: String(b.source_url || ''),
       };
+      // A quiz's link says exam; with none, neo-plan decides from the title.
+      if (b.type === 'exam' || b.type === 'assignment') body.type = b.type;
       return {
         url: `${base}/items`,
         init: { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) },

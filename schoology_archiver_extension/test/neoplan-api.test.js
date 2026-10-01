@@ -26,3 +26,12 @@ test('buildRequest: the work op posts { work } to the item, and refuses any othe
   assert.equal(req.init.body, JSON.stringify({ work: 'ready' }));
   assert.throws(() => buildRequest('https://neo-plan.vercel.app', 'np_tok', { op: 'work', id: '9', work: 'turnedIn' }));
 });
+
+test('buildRequest: addItem passes a quiz\'s type through, and drops anything else', () => {
+  const item = { schoology_id: '7', title: 'Unit 3 Check', source_url: 'https://x.schoology.com/assignment/7' };
+  const body = (extra) => JSON.parse(buildRequest('https://neo-plan.vercel.app', 'np_tok', { op: 'addItem', item: { ...item, ...extra } }).init.body);
+  assert.equal(body({ type: 'exam' }).type, 'exam');
+  assert.equal(body({ type: 'assignment' }).type, 'assignment');
+  assert.equal('type' in body({}), false); // neo-plan decides from the title
+  assert.equal('type' in body({ type: 'task' }), false);
+});

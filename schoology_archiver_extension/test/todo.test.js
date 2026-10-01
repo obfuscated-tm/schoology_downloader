@@ -201,3 +201,14 @@ test('groupEvents: a card\'s section id wins over its name (renamed or duplicate
   const groups = groupEvents({ upcoming: [{ schoology_id: '1', title: 'x', course: 'Pre-Calculus H - 2420', section_id: '200', due: '2026-09-28T10:00:00' }], cards, now: new Date('2026-09-27T12:00:00') });
   assert.deepEqual(groups.map((g) => g.items.length), [0, 1]);
 });
+
+test('autoAddable / typeFor: what the To Do rows add by themselves, and as what', async () => {
+  const { autoAddable, typeFor, AUTO_ADD_OVERDUE_DAYS } = await import('../overlays/todorows.js');
+  assert.equal(autoAddable({ overdue: false }), true);
+  assert.equal(autoAddable({ overdue: true, days: AUTO_ADD_OVERDUE_DAYS }), true);
+  assert.equal(autoAddable({ overdue: true, days: AUTO_ADD_OVERDUE_DAYS + 1 }), false);
+  assert.equal(autoAddable({ overdue: false, graded: true }), false);
+  assert.equal(typeFor({ url: '/course/44/assessments/700' }), 'exam');
+  assert.equal(typeFor({ url: '/assignment/700' }), undefined);
+  assert.equal(typeFor({}), undefined);
+});

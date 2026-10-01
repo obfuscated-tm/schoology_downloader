@@ -9,6 +9,8 @@
 //   Schoology GET  /home/overdue_submissions_ajax  1
 //   Schoology GET  /home/upcoming_ajax             1
 //   Schoology GET  /course/{id}/student_grades     1 per section mapped to a class
+//   neo-plan  GET  /api/extension/items?…          which upcoming/overdue ones it has
+//   neo-plan  POST /api/extension/items            1 per one it doesn't, at most ADD_CAP
 //   neo-plan  GET  /api/extension/open             open Schoology assignments
 //   Schoology GET  /assignment/{id}/info           1 per open id, at most STATUS_CAP,
 //                                                  redirects reported, never followed
@@ -26,6 +28,8 @@ import { RateLimitError } from '../reader/ratelimit.js';
 import { sectionsByRealm, realmKey, isAssessmentUrl } from '../reader/parse/sync.js';
 
 export const STATUS_CAP = 10;
+export const ADD_CAP = 25; // new items added in one run, at most
+const ADD_OVERDUE_DAYS = 14; // overdue work older than this was most likely left out on purpose
 const STATUS_MIN_AGE_MS = 30 * 60 * 1000; // an id checked more recently than this is left for next run
 export const KEY_SNAPSHOT = 'syncSnapshot';
 export const KEY_CHECKED = 'syncStatusChecked'; // { schoology_id: last checked ms }
@@ -59,6 +63,23 @@ export function pickForStatus(openIds, checked, cap = STATUS_CAP, minAgeMs = STA
     .map((x) => x.id);
 }
 
+/**
+ * The home-list rows worth adding to neo-plan if it doesn't have them:
+ * every upcoming one, and overdue ones due in the last two weeks. One row
+ * per id, upcoming first. Pure.
+ */
+export function addCandidates({ upcoming = [], overdue = [] }, now = Date.now()) {
+  const out = new Map();
+  for (const r of upcoming) if (ID_RE.test(String(r.schoology_id))) out.set(String(r.schoology_id), r);
+  for (const r of overdue) {
+    const id = String(r.schoology_id);
+    if (!ID_RE.test(id) || out.has(id)) continue;
+    const due = Date.parse(r.due || '');
+    if (Number.isNaN(due) || now - due <= ADD_OVERDUE_DAYS * 86_400_000) out.set(id, r);
+  }
+  return [...out.values()];
+}
+
 export async function runSync({ client, parse, np, storage, now = () => new Date(), log = () => {} }) {
   const started = now();
   const fetchedAt = started.toISOString();
@@ -69,7 +90,7 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
     ok: false,
     error: null, // null | 'login' | 'token' | 'neoplan' | 'schoology' | 'ratelimit' | 'stopped'
     mode: null,
-    counts: { courses: 0, upcoming: 0, overdue: 0, events: 0, gradebooks: 0, gradebook_rows: 0, missing: 0, open: 0, checked: 0, submitted: 0, redirected: 0, items: 0 },
+    counts: { courses: 0, upcoming: 0, overdue: 0, events: 0, gradebooks: 0, gradebook_rows: 0, missing: 0, added: 0, open: 0, checked: 0, submitted: 0, redirected: 0, items: 0 },
     requests: { schoology: 0, neoplan: 0 },
     did: {},
     courses: [],
@@ -177,6 +198,34 @@ export async function runSync({ client, parse, np, storage, now = () => new Date
         if (e instanceof LoginError || e instanceof RateLimitError || e?.name === 'StoppedError' || e?.name === 'AbortError') throw e;
         row.gradebook = 'error';
         snap.errors.push(`gradebook ${c.section_id}: ${e.message || e}`);
+      }
+    }
+
+    // 5b. New work goes into neo-plan without a click: an upcoming (or
+    //     recently overdue) assignment neo-plan has no item for at all. One
+    //     it has, removed or not, is left alone. A refused add (no column to
+    //     put it in) is noted and the run goes on.
+    if (!noToken) {
+      const cands = addCandidates(snap.lists, started.getTime());
+      const have = new Set();
+      for (let i = 0; i < cands.length; i += 100) {
+        const ids = cands.slice(i, i + 100).map((r) => String(r.schoology_id));
+        for (const it of (await npCall('items', { schoology_ids: ids }))?.items || []) have.add(String(it.source_id));
+      }
+      for (const r of cands.filter((c) => !have.has(String(c.schoology_id))).slice(0, ADD_CAP)) {
+        snap.requests.neoplan++;
+        const res = await np('addItem', {
+          item: {
+            schoology_id: String(r.schoology_id),
+            section_id: sectionForRealm(r.realm),
+            title: r.title,
+            due_at: r.due || null,
+            source_url: client.abs(`/assignment/${r.schoology_id}`),
+          },
+        });
+        if (res.ok) snap.counts.added++;
+        else if (res.status === 401) throw new NeoplanError('addItem', res);
+        else snap.errors.push(`add ${r.schoology_id}: ${res.status || res.data?.error || 'network'}`);
       }
     }
 

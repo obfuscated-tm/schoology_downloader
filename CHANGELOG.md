@@ -4,6 +4,15 @@ The extension and the MCP server are versioned separately (see [Versioning and r
 
 Entries before extension 1.10.0 / MCP 1.1.0 were reconstructed from the git history. Apart from MCP 1.0.0 (tag `mcp-v1.0.0`), those versions were never tagged, so they're listed by date.
 
+## 2026-09-30 — Extension 1.12.0
+
+Tag: `ext-v1.12.0`
+
+### Extension
+- New work goes into neo-plan by itself: an upcoming (or up to two weeks overdue) assignment or quiz that neo-plan has no item for is added without pressing **Add to neo-plan**, both when a To Do sidebar shows it and on every background sync. Anything you removed from neo-plan stays removed.
+- Quizzes go in as tests: a To Do row that links to a quiz (`/assessments/`) is sent as an exam; anything else lets neo-plan decide from the title (quiz, test, exam…), the same rule as its calendar feed. Needs the matching neo-plan update.
+- To Do sidebar adds now carry the due date (they were sent with none).
+
 ## 2026-09-28 — Extension 1.11.0
 
 Tag: `ext-v1.11.0`

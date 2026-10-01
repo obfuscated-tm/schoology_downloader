@@ -5,6 +5,7 @@
 //   Submitted / Turned in / Finished     Missing pill + ○
 //   ● Done, not submitted                ○ (not done; the row shows the due)
 //   + Add to neo-plan                    Removed · Add back
+// A To Do row (`autoAdd`) that isn't in neo-plan is added without the click.
 // Nothing from the gradebook here (these lists span courses), and no due date:
 // Schoology's row already shows it.
 // One batched items request for the rows on screen; rows Schoology loads
@@ -51,6 +52,7 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
   const marks = new Map(); // schoology_id → [{ row, host, root, busy }]
   const errors = new Map(); // schoology_id → text of the last failed change
   const asked = new Set();
+  const autoTried = new Set(); // ids added without a click, once per page
   const ours = new WeakSet(); // the markers made here, not copies of them
   let failed = false;
 
@@ -132,6 +134,7 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
       title: row.title,
       due_at: row.due || null,
       source_url: `${loc.origin}/assignment/${row.schoology_id}`,
+      ...(row.type ? { type: row.type } : {}), // 'exam' for a quiz; otherwise neo-plan goes by the title
     },
   }));
   const restore = (row) => change(row, () => call('restore', { id: known.get(row.schoology_id)?.id }));
@@ -210,6 +213,14 @@ export function startMarks({ rowsIn, doc = document, loc = location, call = np }
       for (const id of ids) known.set(id, got.get(id) || null);
     }
     drawAll();
+    // New work on the To Do lists goes straight in: a row with `autoAdd`
+    // (todorows.js autoAddable) that neo-plan doesn't know at all. One it
+    // knows as removed is not null here, so it stays out.
+    for (const row of rows) {
+      if (!row.autoAdd || known.get(row.schoology_id) !== null || autoTried.has(row.schoology_id)) continue;
+      autoTried.add(row.schoology_id);
+      await add(row);
+    }
   }
 
   const onChange = debounce(scan, 500);

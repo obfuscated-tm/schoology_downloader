@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pickForStatus, STATUS_CAP, runSync, KEY_SNAPSHOT } from '../sync/sync.js';
+import { pickForStatus, STATUS_CAP, runSync, KEY_SNAPSHOT, addCandidates } from '../sync/sync.js';
 
 test('STATUS_CAP is 10 (fewer /assignment/{id}/info requests per run)', () => {
   assert.equal(STATUS_CAP, 10);
@@ -131,6 +131,7 @@ test('runSync: with a token, neoplan stays true and lists are still filled', asy
   };
   const np = async (op) => {
     if (op === 'courses') return { ok: true, data: { courses: [{ section_id: '1', class_id: null }] } };
+    if (op === 'items') return { ok: true, data: { items: [{ source_id: '5' }] } };
     if (op === 'open') return { ok: true, data: { assignments: [] } };
     if (op === 'enrich') return { ok: true, data: { results: [], courses: [] } };
     throw new Error(`unexpected neo-plan op ${op}`);
@@ -140,6 +141,7 @@ test('runSync: with a token, neoplan stays true and lists are still filled', asy
 
   assert.equal(snap.ok, true);
   assert.equal(snap.neoplan, true);
+  assert.equal(snap.counts.added, 0); // neo-plan already has it
   assert.ok(snap.payload); // step 7 ran
   assert.deepEqual(snap.lists.upcoming, [HOME_LIST_ROW]);
 });
@@ -157,4 +159,58 @@ test('runSync: a token neo-plan refuses is still a token error, not the no-token
   assert.equal(snap.ok, false);
   assert.equal(snap.error, 'token');
   assert.equal(snap.neoplan, false);
+});
+
+// ── New work goes into neo-plan by itself ───────────────────────────────────
+
+test('addCandidates: every upcoming row, overdue ones from the last two weeks, one per id', () => {
+  const now = Date.parse('2026-09-30T12:00:00Z');
+  const got = addCandidates({
+    upcoming: [{ schoology_id: '1', due: '2026-10-02T00:00:00Z' }, { schoology_id: 'x' }],
+    overdue: [
+      { schoology_id: '1', due: '2026-09-29T00:00:00Z' }, // already upcoming
+      { schoology_id: '2', due: '2026-09-20T00:00:00Z' }, // 10 days: in
+      { schoology_id: '3', due: '2026-09-01T00:00:00Z' }, // a month: out
+      { schoology_id: '4' }, // no date: in
+    ],
+  }, now);
+  assert.deepEqual(got.map((r) => r.schoology_id), ['1', '2', '4']);
+});
+
+test('runSync: an upcoming assignment neo-plan has no item for is added, with its section; a refused add is noted, not fatal', async () => {
+  const client = {
+    mode: 'direct',
+    abs: (p) => `https://x.schoology.com${p}`,
+    findSchoologyTab: async () => null,
+    getText: fakeGetText(new Map([
+      ['/iapi/course/active', {}],
+      ['/home/upcoming_submissions_ajax', {}],
+      ['/home/overdue_submissions_ajax', {}],
+      ['/home/upcoming_ajax', {}],
+    ])),
+  };
+  const adds = [];
+  let refuse = false;
+  const np = async (op, args) => {
+    if (op === 'courses') return { ok: true, data: { courses: [] } };
+    if (op === 'items') return { ok: true, data: { items: [] } };
+    if (op === 'addItem') { adds.push(args.item); return refuse ? { ok: false, status: 409, data: { error: 'no_column' } } : { ok: true, status: 201, data: {} }; }
+    if (op === 'open') return { ok: true, data: { assignments: [] } };
+    if (op === 'enrich') return { ok: true, data: { results: [], courses: [] } };
+    throw new Error(`unexpected neo-plan op ${op}`);
+  };
+  const now = () => new Date('2026-09-30T12:00:00Z');
+  const snap = await runSync({ client, parse: fakeSyncParse(), np, storage: fakeStorage(), now });
+  assert.equal(snap.ok, true);
+  assert.equal(snap.counts.added, 1); // the same row in both lists: added once
+  assert.deepEqual(adds, [{
+    schoology_id: '5', section_id: '1', title: 'HW 1', due_at: '2026-09-30T00:00:00.000Z',
+    source_url: 'https://x.schoology.com/assignment/5',
+  }]);
+
+  refuse = true;
+  const snap2 = await runSync({ client, parse: fakeSyncParse(), np, storage: fakeStorage(), now });
+  assert.equal(snap2.ok, true);
+  assert.equal(snap2.counts.added, 0);
+  assert.ok(snap2.errors.some((e) => /add 5: 409/.test(e)));
 });
